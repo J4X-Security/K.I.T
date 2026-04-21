@@ -998,6 +998,15 @@ def apply_llm_deduplication_from_payload(payload: dict[str, Any]) -> list[Canoni
     return [canonical_issue_from_draft(index, issue) for index, issue in enumerate(normalized, start=1)]
 
 
+def require_llm_canonical_issues(payload: dict[str, Any]) -> list[CanonicalIssue]:
+    issues = apply_llm_deduplication_from_payload(payload)
+    if issues is None:
+        raise RuntimeError(
+            "missing canonical_issues in staged JSON; LLM-authored dedupe is required"
+        )
+    return issues
+
+
 def canonical_issue_to_candidate(issue: CanonicalIssue) -> IssueCandidate:
     evidence = issue.evidence[0] if issue.evidence else {}
     return IssueCandidate(
@@ -1284,7 +1293,7 @@ def run_finalize_build(args: argparse.Namespace) -> int:
         else:
             existing_issues, existing_sources = load_known_payload(merge_known_path)
         candidates = [canonical_issue_to_candidate(issue) for issue in existing_issues] + candidates
-    issues = apply_llm_deduplication_from_payload(state_payload) or aggregate_candidates(candidates)
+    issues = require_llm_canonical_issues(state_payload)
     all_sources = merge_source_lists(existing_sources, prepared_sources)
     inputs = dedupe_list([source.input_source for source in all_sources])
     output_path = Path(args.output)
@@ -1305,86 +1314,15 @@ def run_finalize_build(args: argparse.Namespace) -> int:
 
 
 def run_build(args: argparse.Namespace) -> int:
-    workspace_dir = create_workspace(args.workspace_dir)
-    prepared_sources, _requested_inputs, _expanded_inputs = prepare_sources(args.input, workspace_dir)
-    if args.extractions_file:
-        candidates = apply_claude_extractions(prepared_sources, Path(args.extractions_file))
-    else:
-        candidates: list[IssueCandidate] = []
-        for source in prepared_sources:
-            text = Path(source.normalized_text_path).read_text(encoding="utf-8")
-            extracted = extract_candidates_from_text(text, source)
-            if extracted:
-                source.extraction_status = "partial"
-                source.warnings = dedupe_list(source.warnings + ["Used deterministic fallback extraction instead of Claude-assisted extraction."])
-                candidates.extend(extracted)
-            else:
-                source.extraction_status = "failed"
-                source.warnings = dedupe_list(source.warnings + ["No issue candidates extracted from normalized text."])
-
-    existing_sources: list[PreparedSource] = []
-    if args.merge_known:
-        existing_issues, existing_sources = load_known_payload(Path(args.merge_known))
-        candidates = [canonical_issue_to_candidate(issue) for issue in existing_issues] + candidates
-
-    issues = aggregate_candidates(candidates)
-    all_sources = merge_source_lists(existing_sources, prepared_sources)
-    output_path = Path(args.output)
-    json_path = write_outputs(output_path, issues, dedupe_list([source.input_source for source in all_sources]), all_sources)
-    print(
-        json.dumps(
-            {
-                "status": "ok",
-                "sources": [source.input_source for source in prepared_sources],
-                "candidate_count": len(candidates),
-                "canonical_issue_count": len(issues),
-                "output": str(json_path),
-            },
-            indent=2,
-        )
+    raise RuntimeError(
+        "direct build is disabled; use prepare-build, have the LLM write source_results and canonical_issues, then run finalize-build"
     )
-    return 0
 
 
 def run_check(args: argparse.Namespace) -> int:
-    known_path = Path(args.known)
-    issues = load_known_issues(known_path)
-    if args.issue_file:
-        issue_text = Path(args.issue_file).read_text(encoding="utf-8")
-        label = args.issue_file
-    else:
-        issue_text = args.issue_text
-        label = "inline issue"
-    candidates = parse_issue_candidates(issue_text, label)
-    if len(candidates) == 1:
-        result = check_issue(issues, candidates[0])
-        result["candidate"] = dataclasses.asdict(candidates[0])
-        print(json.dumps(result, indent=2))
-        return 0
-
-    results: list[dict[str, Any]] = []
-    summary = {"known": 0, "possibly-known": 0, "new": 0}
-    for index, candidate in enumerate(candidates, start=1):
-        result = check_issue(issues, candidate)
-        result["candidate"] = dataclasses.asdict(candidate)
-        result["index"] = index
-        results.append(result)
-        verdict = result.get("verdict", "new")
-        if verdict in summary:
-            summary[verdict] += 1
-    print(
-        json.dumps(
-            {
-                "mode": "batch",
-                "input": label,
-                "finding_count": len(candidates),
-                "summary": summary,
-                "results": results,
-            },
-            indent=2,
-        )
+    raise RuntimeError(
+        "direct check is disabled; use prepare-check and have the LLM evaluate each finding against known_issues"
     )
-    return 0
 
 
 def run_prepare_check(args: argparse.Namespace) -> int:

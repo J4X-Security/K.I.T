@@ -64,16 +64,6 @@ python3 claude-skill-known-issues/scripts/known_issues.py finalize-build \
   --output known-issues.json
 ```
 
-Direct `build` still exists for deterministic fallback or scripted use:
-
-```bash
-python3 claude-skill-known-issues/scripts/known_issues.py build \
-  --input path/to/report-1.md \
-  --input https://example.com/report-2 \
-  --merge-known known-issues.json \
-  --output known-issues.json
-```
-
 Behavior:
 
 - accepts repeated `--input` values for local paths and HTTP(S) URLs
@@ -131,8 +121,6 @@ python3 claude-skill-known-issues/scripts/known_issues.py check \
 
 Behavior:
 
-- returns `known`, `possibly-known`, or `new`
-- explains the closest match and the reasoning
 - `prepare-check` is preferred when a report may contain multiple findings or when you want one model judgment per finding
 
 ## Operating Rules
@@ -142,6 +130,7 @@ Behavior:
 - Prefer Claude-assisted dedupe during staged builds: the model should decide which extracted issues collapse into one canonical issue and write that decision into `canonical_issues`.
 - Prefer Claude-assisted duplicate checking through `prepare-check`: the model should review one finding at a time against the full known register.
 - When multiple findings are present and delegation is available, parallelize duplicate checks with one worker per finding.
+- Do not use deterministic fallback for build or check. If the staged LLM data is missing, fail instead of guessing.
 - Collapse issues when the underlying root cause, affected surface, and impact are materially the same even if wording differs.
 - Keep issues separate when they only share a component or severity but differ in bug class or exploit path.
 - If extraction quality is weak for a source, record a warning instead of inventing structured findings.
