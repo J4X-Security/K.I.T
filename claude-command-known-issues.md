@@ -17,7 +17,13 @@ If `$ARGUMENTS` is empty or only whitespace:
 1. Use `AskUserQuestion` to present a small mode selector.
 2. Ask:
    - header: `Mode`
-   - question: `What do you want to do with the known issues workflow?`
+   - question: ` _  _____ ___
+| |/ /_ _/ __|
+| ' < | | (__
+|_|\_\___\___|
+KIC (Known Issue Checker) by J4X
+
+What do you want to do with the known issues workflow?`
    - options:
      - `Build register` — Parse audit reports and generate `known-issues.json`
      - `Check issue` — Compare a new issue against existing known issues

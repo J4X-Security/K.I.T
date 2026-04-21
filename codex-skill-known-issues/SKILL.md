@@ -22,6 +22,12 @@ The first response must contain exactly one question block, then stop and wait f
 Use this exact opening format:
 
 ```text
+ _  _____ ___
+| |/ /_ _/ __|
+| ' < | | (__
+|_|\_\___\___|
+KIC (Known Issue Checker) by J4X
+
 What do you want to do?
 - build: create or extend a known-issues.json register from audit sources
 - check: compare one new issue against an existing register
