@@ -1,6 +1,6 @@
 ---
 name: known-issues-aggregator
-description: Use when asked to consolidate audit findings into a canonical known-issues register, extend an existing known-issues file with new audit sources, or check whether a newly reported issue is already known. Supports local files, local audit folders, repo directories, direct URLs, GitHub file URLs, GitHub folder URLs, and whole GitHub repo URLs.
+description: Use when asked to consolidate audit findings into a canonical known-issues.json register, extend an existing known-issues file with new audit sources, or check whether a newly reported issue is already known. Supports local files, local audit folders, repo directories, direct URLs, GitHub file URLs, GitHub folder URLs, and whole GitHub repo URLs.
 ---
 
 # Known Issues Aggregator
@@ -23,16 +23,18 @@ Use this exact opening format:
 
 ```text
 What do you want to do?
-- build: create or extend a known-issues register from audit sources
+- build: create or extend a known-issues.json register from audit sources
 - check: compare one new issue against an existing register
 - help: show the workflow and examples
 
 Reply with: build, check, or help.
 ```
 
-If they choose build, ask a second question before doing any work:
+If they choose build and `known-issues.json` already exists in the current working directory, ask a second question before doing any work:
 
 `Reply with: extend or rebuild.`
+
+If `known-issues.json` does not exist yet, do not ask this question. Default to rebuild behavior.
 
 If they choose build, collect sources iteratively instead of assuming them all at once.
 
@@ -73,7 +75,7 @@ The wrapper delegates to the shared engine from this repository and exposes the 
 
 Guide the user through:
 
-1. Ask whether to extend an existing `known-issues.md` or rebuild from scratch.
+1. If `known-issues.json` already exists in the current working directory, ask whether to extend it or rebuild from scratch. Otherwise default to rebuild without asking.
 2. Collect sources iteratively.
 3. Sources may be:
    - a local report file
@@ -90,18 +92,21 @@ Guide the user through:
 python3 ~/.codex/skills/known-issues-aggregator/scripts/known_issues.py prepare-build \
   --input path/to/report-or-folder \
   --input https://github.com/org/audit-repo/tree/main/reports \
+  --merge-known known-issues.json \
   --state-file known-issues.json
 ```
 
 6. Read `known-issues.json`.
-7. For each prepared source, read the normalized text file path listed there.
-8. Fill `source_results` inside that same `known-issues.json`.
-9. Finalize:
+7. If `existing_issues_snapshot` is present, treat those as the current canonical register for extend mode.
+8. For each prepared source, read the normalized text file path listed there.
+9. Fill `source_results` inside that same `known-issues.json`.
+10. Deduplicate both the new extracted issues and the existing canonical issues from `existing_issues_snapshot` when present, then write the final canonical register into `canonical_issues` inside that same `known-issues.json`.
+11. Finalize:
 
 ```bash
 python3 ~/.codex/skills/known-issues-aggregator/scripts/known_issues.py finalize-build \
   --state-file known-issues.json \
-  --output known-issues.md
+  --output known-issues.json
 ```
 
 To extend an existing register:
@@ -109,8 +114,8 @@ To extend an existing register:
 ```bash
 python3 ~/.codex/skills/known-issues-aggregator/scripts/known_issues.py finalize-build \
   --state-file known-issues.json \
-  --merge-known known-issues.md \
-  --output known-issues.md
+  --merge-known known-issues.json \
+  --output known-issues.json
 ```
 
 ## Check Workflow
@@ -123,7 +128,7 @@ Then compare the new issue against the existing register using:
 
 ```bash
 python3 ~/.codex/skills/known-issues-aggregator/scripts/known_issues.py check \
-  --known known-issues.md \
+  --known known-issues.json \
   --issue-text "Unchecked transfer result can desynchronize reward accounting."
 ```
 
@@ -131,7 +136,7 @@ Or:
 
 ```bash
 python3 ~/.codex/skills/known-issues-aggregator/scripts/known_issues.py check \
-  --known known-issues.md \
+  --known known-issues.json \
   --issue-file path/to/new-issue.md
 ```
 
@@ -142,7 +147,8 @@ python3 ~/.codex/skills/known-issues-aggregator/scripts/known_issues.py check \
 - Keep all choice prompts compact and single-line. Do not print large bullet menus unless the user asks for help.
 - During source collection, ask for the next source value directly. Do not ask the user to classify it as local or URL first.
 - Prefer the staged flow for irregular formats, URLs, PDFs, GitHub repos, and GitHub folders.
-- Treat `known-issues.md` as the human-facing artifact and `known-issues.json` as the machine-friendly sidecar.
+- In the staged flow, the model is responsible for deduping extracted findings and, in extend mode, deduping them against `existing_issues_snapshot` before writing the final canonical issues into `canonical_issues`.
+- Treat `known-issues.json` as the only canonical artifact.
 - During staged builds, reuse the same `known-issues.json` file instead of creating separate preview or extraction JSON files.
 - Preserve source traceability, aliases, source locations, and evidence snippets where available.
 - Continue builds when a source is weak or partial, but surface warnings clearly.

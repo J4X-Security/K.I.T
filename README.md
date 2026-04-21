@@ -4,7 +4,7 @@ This repository contains shared known-issues tooling plus host-specific integrat
 
 It supports two workflows:
 
-- build `known-issues.md` from a set of audit reports provided as local file paths or URLs
+- build `known-issues.json` from a set of audit reports provided as local file paths or URLs
 - check whether a newly reported issue is already covered by the existing known-issues register
 
 Host-specific packages live in:
@@ -27,8 +27,7 @@ Directory and GitHub container inputs are expanded recursively into supported au
 
 ## What It Produces
 
-- `known-issues.md`: human-readable canonical issue register
-- `known-issues.json`: machine-friendly sidecar used for more reliable duplicate checks
+- `known-issues.json`: canonical known-issues register used for both builds and duplicate checks
 
 ## Repository Layout
 
@@ -198,13 +197,13 @@ You can invoke the helper directly from this repository or from the installed sk
 Once installed, invoke the `known-issues-aggregator` Codex skill when you want Codex to:
 
 - build a known-issues register from audit reports
-- extend an existing `known-issues.md`
+- extend an existing `known-issues.json`
 - check whether a new issue is already known
 
 The Codex skill is designed to start with a menu-like conversational chooser. It should first ask what you want to do, then ask follow-up questions such as:
 
 - build, check, or help
-- extend existing or rebuild from scratch
+- extend existing or rebuild from scratch, but only if `known-issues.json` already exists
 - add the next source path or URL, or finish source collection
 
 The Codex skill uses the wrapper at:
@@ -230,6 +229,7 @@ python3 claude-skill-known-issues/scripts/known_issues.py prepare-build \
   --input /path/to/audits-folder \
   --input https://example.com/report-2.pdf \
   --input https://github.com/org/audits-repo/tree/main/reports \
+  --merge-known known-issues.json \
   --state-file known-issues.json
 ```
 
@@ -238,16 +238,21 @@ Then read `known-issues.json`, extract issue records from the normalized source 
 ```bash
 python3 claude-skill-known-issues/scripts/known_issues.py finalize-build \
   --state-file known-issues.json \
-  --output known-issues.md
+  --output known-issues.json
 ```
+
+During the staged flow, the model should also:
+- use `existing_issues_snapshot` when present for extend mode
+- deduplicate the new extracted findings against those existing canonical issues
+- write the final canonical register into `canonical_issues` inside `known-issues.json` before `finalize-build` runs
 
 To extend an existing register instead of rebuilding from scratch:
 
 ```bash
 python3 claude-skill-known-issues/scripts/known_issues.py finalize-build \
   --state-file known-issues.json \
-  --merge-known known-issues.md \
-  --output known-issues.md
+  --merge-known known-issues.json \
+  --output known-issues.json
 ```
 
 Direct fallback flow:
@@ -256,16 +261,13 @@ Direct fallback flow:
 python3 claude-skill-known-issues/scripts/known_issues.py build \
   --input /path/to/report-1.md \
   --input https://example.com/report-2 \
-  --merge-known known-issues.md \
-  --output known-issues.md
+  --merge-known known-issues.json \
+  --output known-issues.json
 ```
 
-This writes:
+This writes `known-issues.json`.
 
-- `known-issues.md`
-- `known-issues.json`
-
-In the staged flow, `known-issues.json` is reused as the single JSON state file and then becomes the final sidecar. It contains per-source extraction metadata, warnings, and evidence provenance.
+In the staged flow, `known-issues.json` is reused as the single JSON state file and then becomes the final canonical register. It contains per-source extraction metadata, warnings, and evidence provenance.
 
 Installed Codex wrapper equivalent:
 
@@ -273,15 +275,15 @@ Installed Codex wrapper equivalent:
 python3 ~/.codex/skills/known-issues-aggregator/scripts/known_issues.py build \
   --input /path/to/report-1.md \
   --input https://example.com/report-2 \
-  --merge-known known-issues.md \
-  --output known-issues.md
+  --merge-known known-issues.json \
+  --output known-issues.json
 ```
 
 ### Check whether a new issue is already known
 
 ```bash
 python3 claude-skill-known-issues/scripts/known_issues.py check \
-  --known known-issues.md \
+  --known known-issues.json \
   --issue-text "Unchecked transfer result can desynchronize reward accounting."
 ```
 
@@ -289,7 +291,7 @@ Or:
 
 ```bash
 python3 claude-skill-known-issues/scripts/known_issues.py check \
-  --known known-issues.md \
+  --known known-issues.json \
   --issue-file /path/to/new-issue.md
 ```
 

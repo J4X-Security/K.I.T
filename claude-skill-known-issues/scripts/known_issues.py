@@ -11,7 +11,6 @@ import json
 import re
 import sys
 import tempfile
-import textwrap
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -114,6 +113,20 @@ class CanonicalIssue:
     canonical_key: str
     source_ids: list[str] = dataclasses.field(default_factory=list)
     evidence: list[dict[str, str]] = dataclasses.field(default_factory=list)
+
+
+@dataclasses.dataclass
+class CanonicalIssueDraft:
+    title: str
+    summary: str
+    root_cause: str
+    impact: str
+    affected_component: str
+    severity: str
+    aliases: list[str]
+    source_reports: list[str]
+    source_ids: list[str]
+    evidence: list[dict[str, str]]
 
 
 def is_url(value: str) -> bool:
@@ -639,6 +652,21 @@ def canonical_key_for(candidate: IssueCandidate) -> str:
     return f"{prefix}-{digest}"
 
 
+def canonical_key_for_issue(issue: CanonicalIssueDraft | CanonicalIssue) -> str:
+    candidate = IssueCandidate(
+        title=issue.title,
+        summary=issue.summary,
+        root_cause=issue.root_cause,
+        impact=issue.impact,
+        affected_component=issue.affected_component,
+        severity=issue.severity,
+        source=issue.source_reports[0] if issue.source_reports else "known issue",
+        aliases=issue.aliases or [issue.title],
+        source_id=issue.source_ids[0] if issue.source_ids else "",
+    )
+    return canonical_key_for(candidate)
+
+
 def aggregate_candidates(candidates: list[IssueCandidate]) -> list[CanonicalIssue]:
     canonicals: list[CanonicalIssue] = []
     for candidate in candidates:
@@ -691,6 +719,23 @@ def aggregate_candidates(candidates: list[IssueCandidate]) -> list[CanonicalIssu
     for index, issue in enumerate(canonicals, start=1):
         issue.issue_id = f"KI-{index:03d}"
     return canonicals
+
+
+def canonical_issue_from_draft(index: int, draft: CanonicalIssueDraft) -> CanonicalIssue:
+    return CanonicalIssue(
+        issue_id=f"KI-{index:03d}",
+        title=draft.title,
+        summary=draft.summary,
+        root_cause=draft.root_cause,
+        impact=draft.impact,
+        affected_component=draft.affected_component,
+        severity=normalize_severity(draft.severity),
+        aliases=dedupe_list(draft.aliases or [draft.title]),
+        source_reports=dedupe_list(draft.source_reports),
+        canonical_key=canonical_key_for_issue(draft),
+        source_ids=dedupe_list(draft.source_ids),
+        evidence=dedupe_evidence(draft.evidence),
+    )
 
 
 def issue_evidence(candidate: IssueCandidate) -> dict[str, str]:
@@ -859,111 +904,26 @@ def slugify(value: str) -> str:
     return re.sub(r"-{2,}", "-", slug)
 
 
-def render_known_issues(issues: list[CanonicalIssue], inputs: list[str], sources: list[PreparedSource]) -> str:
-    lines = [
-        "# Known Issues",
-        "",
-        "Canonical issue register generated from prior audit sources.",
-        "",
-        f"- Source count: {len(inputs)}",
-        f"- Canonical issue count: {len(issues)}",
-        "",
-        "## Summary",
-        "",
-        "| ID | Severity | Component | Title | Sources |",
-        "| --- | --- | --- | --- | --- |",
-    ]
-    for issue in issues:
-        lines.append(
-            f"| {issue.issue_id} | {issue.severity} | {escape_pipes(issue.affected_component)} | {escape_pipes(issue.title)} | {len(issue.source_reports)} |"
-        )
-
-    warning_sources = [source for source in sources if source.warnings or source.extraction_status != "ok"]
-    if warning_sources:
-        lines.extend(["", "## Source Notes", ""])
-        for source in warning_sources:
-            detail = "; ".join(source.warnings) or "No additional detail."
-            lines.append(f"- `{source.source_id}` `{source.input_source}`: {source.extraction_status}. {detail}")
-
-    for issue in issues:
-        lines.extend(
-            [
-                "",
-                f"## {issue.issue_id}: {issue.title}",
-                "",
-                f"- Severity: {issue.severity}",
-                f"- Affected component: {issue.affected_component}",
-                f"- Canonical key: `{issue.canonical_key}`",
-                f"- Sources: {', '.join(issue.source_reports)}",
-                "",
-                "### Summary",
-                "",
-                wrap_markdown(issue.summary),
-                "",
-                "### Root Cause",
-                "",
-                wrap_markdown(issue.root_cause),
-                "",
-                "### Impact",
-                "",
-                wrap_markdown(issue.impact),
-                "",
-                "### Aliases",
-                "",
-                ", ".join(issue.aliases) if issue.aliases else "None",
-                "",
-                "### Evidence",
-                "",
-            ]
-        )
-        if issue.evidence:
-            for evidence in issue.evidence[:5]:
-                location = evidence.get("location") or "unknown location"
-                snippet = evidence.get("snippet") or "No snippet available."
-                lines.append(f"- `{evidence.get('source_id', '')}` {location}: {escape_pipes(snippet)}")
-        else:
-            lines.append("No evidence captured.")
-    lines.append("")
-    return "\n".join(lines)
-
-
-def escape_pipes(text: str) -> str:
-    return text.replace("|", "\\|")
-
-
-def wrap_markdown(text: str) -> str:
-    return "\n".join(textwrap.wrap(text, width=100)) if len(text) > 100 else text
-
-
-def write_outputs(output_path: Path, issues: list[CanonicalIssue], inputs: list[str], sources: list[PreparedSource]) -> tuple[Path, Path]:
-    markdown = render_known_issues(issues, inputs, sources)
-    output_path.write_text(markdown, encoding="utf-8")
-    json_path = output_path.with_suffix(".json")
+def write_outputs(output_path: Path, issues: list[CanonicalIssue], inputs: list[str], sources: list[PreparedSource]) -> Path:
     payload = {
         "inputs": inputs,
         "sources": [dataclasses.asdict(source) for source in sources],
         "issues": [dataclasses.asdict(issue) for issue in issues],
     }
-    json_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
-    return output_path, json_path
+    output_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    return output_path
 
 
 def load_known_issues(known_path: Path) -> list[CanonicalIssue]:
-    json_path = known_path.with_suffix(".json")
-    if json_path.exists():
-        payload = json.loads(json_path.read_text(encoding="utf-8"))
-        return [canonical_issue_from_dict(issue) for issue in payload.get("issues", [])]
-    return parse_known_issues_markdown(known_path.read_text(encoding="utf-8"))
+    payload = json.loads(known_path.read_text(encoding="utf-8"))
+    return [canonical_issue_from_dict(issue) for issue in payload.get("issues", [])]
 
 
 def load_known_payload(known_path: Path) -> tuple[list[CanonicalIssue], list[PreparedSource]]:
-    json_path = known_path.with_suffix(".json")
-    if json_path.exists():
-        payload = json.loads(json_path.read_text(encoding="utf-8"))
-        issues = [canonical_issue_from_dict(issue) for issue in payload.get("issues", [])]
-        sources = [PreparedSource(**source) for source in payload.get("sources", [])]
-        return issues, sources
-    return parse_known_issues_markdown(known_path.read_text(encoding="utf-8")), []
+    payload = json.loads(known_path.read_text(encoding="utf-8"))
+    issues = [canonical_issue_from_dict(issue) for issue in payload.get("issues", [])]
+    sources = [PreparedSource(**source) for source in payload.get("sources", [])]
+    return issues, sources
 
 
 def canonical_issue_from_dict(data: dict[str, Any]) -> CanonicalIssue:
@@ -981,6 +941,61 @@ def canonical_issue_from_dict(data: dict[str, Any]) -> CanonicalIssue:
         source_ids=data.get("source_ids", []),
         evidence=data.get("evidence", []),
     )
+
+
+def normalize_evidence_item(raw: dict[str, Any], source_ids: list[str], source_reports: list[str]) -> dict[str, str]:
+    return {
+        "source": collapse_ws(str(raw.get("source", ""))) or (source_reports[0] if source_reports else ""),
+        "source_id": collapse_ws(str(raw.get("source_id", ""))) or (source_ids[0] if source_ids else ""),
+        "location": collapse_ws(str(raw.get("location", ""))),
+        "snippet": collapse_ws(str(raw.get("snippet", "")))[:300],
+        "original_title": collapse_ws(str(raw.get("original_title", ""))),
+        "confidence": collapse_ws(str(raw.get("confidence", ""))).lower() or "medium",
+    }
+
+
+def normalize_llm_canonical_issue(raw_issue: dict[str, Any]) -> CanonicalIssueDraft:
+    title = collapse_ws(str(raw_issue.get("title", ""))) or "Untitled issue"
+    summary = collapse_ws(str(raw_issue.get("summary", ""))) or title
+    root_cause = collapse_ws(str(raw_issue.get("root_cause", ""))) or title
+    impact = collapse_ws(str(raw_issue.get("impact", ""))) or "Impact not explicitly stated in source report."
+    component = collapse_ws(str(raw_issue.get("affected_component", ""))) or "Unspecified component"
+    severity = normalize_severity(str(raw_issue.get("severity", "")))
+
+    aliases = raw_issue.get("aliases", [])
+    if not isinstance(aliases, list):
+        aliases = [str(aliases)]
+    source_reports = raw_issue.get("source_reports", [])
+    if not isinstance(source_reports, list):
+        source_reports = [str(source_reports)]
+    source_ids = raw_issue.get("source_ids", [])
+    if not isinstance(source_ids, list):
+        source_ids = [str(source_ids)]
+    evidence = raw_issue.get("evidence", [])
+    if not isinstance(evidence, list):
+        evidence = []
+
+    return CanonicalIssueDraft(
+        title=title,
+        summary=summary,
+        root_cause=root_cause,
+        impact=impact,
+        affected_component=component,
+        severity=severity,
+        aliases=dedupe_list([title] + [collapse_ws(str(alias)) for alias in aliases if collapse_ws(str(alias))]),
+        source_reports=dedupe_list([collapse_ws(str(source)) for source in source_reports if collapse_ws(str(source))]),
+        source_ids=dedupe_list([collapse_ws(str(source_id)) for source_id in source_ids if collapse_ws(str(source_id))]),
+        evidence=[normalize_evidence_item(item, source_ids, source_reports) for item in evidence if isinstance(item, dict)],
+    )
+
+
+def apply_llm_deduplication_from_payload(payload: dict[str, Any]) -> list[CanonicalIssue] | None:
+    raw_issues = payload.get("canonical_issues")
+    if not isinstance(raw_issues, list):
+        return None
+    normalized = [normalize_llm_canonical_issue(item) for item in raw_issues if isinstance(item, dict)]
+    normalized.sort(key=lambda issue: (severity_rank(issue.severity), issue.title.lower()))
+    return [canonical_issue_from_draft(index, issue) for index, issue in enumerate(normalized, start=1)]
 
 
 def canonical_issue_to_candidate(issue: CanonicalIssue) -> IssueCandidate:
@@ -1011,46 +1026,6 @@ def merge_source_lists(existing_sources: list[PreparedSource], new_sources: list
         seen.add(key)
         merged.append(source)
     return merged
-
-
-def parse_known_issues_markdown(content: str) -> list[CanonicalIssue]:
-    pattern = re.compile(r"(?ms)^##\s+(KI-\d+):\s+(.+?)\n(.*?)(?=^##\s+KI-\d+:|\Z)")
-    issues: list[CanonicalIssue] = []
-    for issue_id, title, body in pattern.findall(content):
-        severity = extract_simple_bullet(body, "Severity") or "unspecified"
-        component = extract_simple_bullet(body, "Affected component") or "Unspecified component"
-        key = extract_simple_bullet(body, "Canonical key").strip("`") if extract_simple_bullet(body, "Canonical key") else slugify(title)
-        sources = [item.strip() for item in (extract_simple_bullet(body, "Sources") or "").split(",") if item.strip()]
-        summary = extract_section(body, "Summary")
-        root_cause = extract_section(body, "Root Cause")
-        impact = extract_section(body, "Impact")
-        aliases_blob = extract_section(body, "Aliases")
-        aliases = [item.strip() for item in aliases_blob.split(",") if item.strip()] if aliases_blob else [title]
-        issues.append(
-            CanonicalIssue(
-                issue_id=issue_id,
-                title=title.strip(),
-                summary=summary or title.strip(),
-                root_cause=root_cause or title.strip(),
-                impact=impact or "Impact not available.",
-                affected_component=component,
-                severity=severity.lower(),
-                aliases=aliases,
-                source_reports=sources,
-                canonical_key=key,
-            )
-        )
-    return issues
-
-
-def extract_simple_bullet(body: str, label: str) -> str:
-    match = re.search(rf"(?im)^-\s*{re.escape(label)}:\s*(.+)$", body)
-    return match.group(1).strip() if match else ""
-
-
-def extract_section(body: str, title: str) -> str:
-    match = re.search(rf"(?ms)^###\s+{re.escape(title)}\s*\n+(.+?)(?=^###\s+|\Z)", body)
-    return collapse_ws(match.group(1)) if match else ""
 
 
 def check_issue(known_issues: list[CanonicalIssue], candidate: IssueCandidate) -> dict[str, Any]:
@@ -1245,6 +1220,7 @@ def run_prepare_build(args: argparse.Namespace) -> int:
     prepared_sources, requested_inputs, expanded_inputs = prepare_sources(args.input, workspace_dir)
     state_path = Path(args.state_file)
     existing_payload = load_state_payload(state_path)
+    merge_known_path = Path(args.merge_known) if args.merge_known else None
     payload = {
         "status": "prepared",
         "workspace_dir": str(workspace_dir),
@@ -1252,8 +1228,13 @@ def run_prepare_build(args: argparse.Namespace) -> int:
         "expanded_inputs": expanded_inputs,
         "sources": [dataclasses.asdict(source) for source in prepared_sources],
         "source_results": [],
+        "canonical_issues": [],
     }
-    if existing_payload.get("issues"):
+    if merge_known_path:
+        existing_issues, existing_sources = load_known_payload(merge_known_path)
+        payload["existing_issues_snapshot"] = [dataclasses.asdict(issue) for issue in existing_issues]
+        payload["existing_sources_snapshot"] = [dataclasses.asdict(source) for source in existing_sources]
+    elif existing_payload.get("issues"):
         payload["existing_issues_snapshot"] = existing_payload.get("issues", [])
         payload["existing_sources_snapshot"] = existing_payload.get("sources", [])
     write_state_payload(state_path, payload)
@@ -1264,6 +1245,7 @@ def run_prepare_build(args: argparse.Namespace) -> int:
                 "workspace_dir": str(workspace_dir),
                 "state_file": str(state_path),
                 "sources": [dataclasses.asdict(source) for source in prepared_sources],
+                "existing_issue_count": len(payload.get("existing_issues_snapshot", [])),
             },
             indent=2,
         )
@@ -1279,17 +1261,17 @@ def run_finalize_build(args: argparse.Namespace) -> int:
     existing_sources: list[PreparedSource] = []
     if args.merge_known:
         merge_known_path = Path(args.merge_known)
-        if state_payload.get("existing_issues_snapshot") and state_path.resolve() == merge_known_path.with_suffix(".json").resolve():
+        if state_payload.get("existing_issues_snapshot") and state_path.resolve() == merge_known_path.resolve():
             existing_issues = [canonical_issue_from_dict(issue) for issue in state_payload.get("existing_issues_snapshot", [])]
             existing_sources = [PreparedSource(**source) for source in state_payload.get("existing_sources_snapshot", [])]
         else:
             existing_issues, existing_sources = load_known_payload(merge_known_path)
         candidates = [canonical_issue_to_candidate(issue) for issue in existing_issues] + candidates
-    issues = aggregate_candidates(candidates)
+    issues = apply_llm_deduplication_from_payload(state_payload) or aggregate_candidates(candidates)
     all_sources = merge_source_lists(existing_sources, prepared_sources)
     inputs = dedupe_list([source.input_source for source in all_sources])
     output_path = Path(args.output)
-    markdown_path, json_path = write_outputs(output_path, issues, inputs, all_sources)
+    json_path = write_outputs(output_path, issues, inputs, all_sources)
     print(
         json.dumps(
             {
@@ -1297,8 +1279,7 @@ def run_finalize_build(args: argparse.Namespace) -> int:
                 "sources": inputs,
                 "candidate_count": len(candidates),
                 "canonical_issue_count": len(issues),
-                "markdown": str(markdown_path),
-                "json": str(json_path),
+                "output": str(json_path),
             },
             indent=2,
         )
@@ -1332,7 +1313,7 @@ def run_build(args: argparse.Namespace) -> int:
     issues = aggregate_candidates(candidates)
     all_sources = merge_source_lists(existing_sources, prepared_sources)
     output_path = Path(args.output)
-    markdown_path, json_path = write_outputs(output_path, issues, dedupe_list([source.input_source for source in all_sources]), all_sources)
+    json_path = write_outputs(output_path, issues, dedupe_list([source.input_source for source in all_sources]), all_sources)
     print(
         json.dumps(
             {
@@ -1340,8 +1321,7 @@ def run_build(args: argparse.Namespace) -> int:
                 "sources": [source.input_source for source in prepared_sources],
                 "candidate_count": len(candidates),
                 "canonical_issue_count": len(issues),
-                "markdown": str(markdown_path),
-                "json": str(json_path),
+                "output": str(json_path),
             },
             indent=2,
         )
@@ -1372,25 +1352,26 @@ def build_parser() -> argparse.ArgumentParser:
     prepare_build = subparsers.add_parser("prepare-build", help="download and normalize sources for Claude-assisted extraction")
     prepare_build.add_argument("--input", action="append", required=True, help="local path or URL to an audit report")
     prepare_build.add_argument("--state-file", default="known-issues.json", help="single JSON state file used throughout the staged workflow")
+    prepare_build.add_argument("--merge-known", help="existing known-issues.json to snapshot into the staged state for extend mode")
     prepare_build.add_argument("--workspace-dir", help="directory where normalized sources should be written")
     prepare_build.set_defaults(func=run_prepare_build)
 
-    finalize_build = subparsers.add_parser("finalize-build", help="merge Claude extraction results and write known-issues outputs")
+    finalize_build = subparsers.add_parser("finalize-build", help="merge Claude extraction results and write known-issues.json")
     finalize_build.add_argument("--state-file", default="known-issues.json", help="single JSON state file created by prepare-build and updated with source_results")
-    finalize_build.add_argument("--output", default="known-issues.md", help="output markdown path")
-    finalize_build.add_argument("--merge-known", help="existing known-issues.md to extend instead of rebuilding from scratch")
+    finalize_build.add_argument("--output", default="known-issues.json", help="output JSON path")
+    finalize_build.add_argument("--merge-known", help="existing known-issues.json to extend instead of rebuilding from scratch")
     finalize_build.set_defaults(func=run_finalize_build)
 
-    build = subparsers.add_parser("build", help="build known-issues.md and known-issues.json from report sources")
+    build = subparsers.add_parser("build", help="build known-issues.json from report sources")
     build.add_argument("--input", action="append", required=True, help="local path or URL to an audit report")
-    build.add_argument("--output", default="known-issues.md", help="output markdown path")
+    build.add_argument("--output", default="known-issues.json", help="output JSON path")
     build.add_argument("--workspace-dir", help="directory where downloaded and normalized sources should be written")
     build.add_argument("--extractions-file", help="Claude extraction JSON produced from prepare-build output")
-    build.add_argument("--merge-known", help="existing known-issues.md to extend instead of rebuilding from scratch")
+    build.add_argument("--merge-known", help="existing known-issues.json to extend instead of rebuilding from scratch")
     build.set_defaults(func=run_build)
 
     check = subparsers.add_parser("check", help="check whether a new issue is already known")
-    check.add_argument("--known", required=True, help="path to known-issues.md")
+    check.add_argument("--known", required=True, help="path to known-issues.json")
     group = check.add_mutually_exclusive_group(required=True)
     group.add_argument("--issue-file", help="path to a file containing the new issue")
     group.add_argument("--issue-text", help="inline issue text")

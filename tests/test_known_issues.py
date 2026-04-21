@@ -58,7 +58,7 @@ class KnownIssuesCliTests(unittest.TestCase):
                 ).strip(),
                 encoding="utf-8",
             )
-            output = tmp / "known-issues.md"
+            output = tmp / "known-issues.json"
             result = subprocess.run(
                 [
                     "python3",
@@ -113,7 +113,7 @@ class KnownIssuesCliTests(unittest.TestCase):
                 ).strip(),
                 encoding="utf-8",
             )
-            existing_output = tmp / "known-issues.md"
+            existing_output = tmp / "known-issues.json"
             subprocess.run(
                 [
                     "python3",
@@ -154,6 +154,8 @@ class KnownIssuesCliTests(unittest.TestCase):
                     "prepare-build",
                     "--input",
                     str(new_report),
+                    "--merge-known",
+                    str(existing_output),
                     "--state-file",
                     str(state_file),
                     "--workspace-dir",
@@ -164,6 +166,8 @@ class KnownIssuesCliTests(unittest.TestCase):
                 capture_output=True,
                 text=True,
             )
+            prepare_payload = json.loads(prepare_result.stdout)
+            self.assertEqual(prepare_payload["existing_issue_count"], 1)
             state_payload = json.loads(state_file.read_text(encoding="utf-8"))
             state_payload["source_results"] = [
                 {
@@ -186,6 +190,41 @@ class KnownIssuesCliTests(unittest.TestCase):
                     ],
                 }
             ]
+            state_payload["canonical_issues"] = [
+                {
+                    "title": "Admin can bypass cap checks during emergency mint",
+                    "summary": "Emergency mint path skips cap validation.",
+                    "root_cause": "emergencyMint omits the supply cap validation used by mint.",
+                    "impact": "Total supply can exceed the configured cap.",
+                    "affected_component": "TokenMinter.emergencyMint",
+                    "severity": "medium",
+                    "aliases": ["Admin can bypass cap checks during emergency mint"],
+                    "source_reports": [str(existing_report)],
+                    "source_ids": ["EXISTING"],
+                    "evidence": [],
+                },
+                {
+                    "title": "Unchecked transfer result desynchronizes reward accounting",
+                    "summary": "Claim flow ignores failed token transfers.",
+                    "root_cause": "claimRewards updates accounting before checking transfer success.",
+                    "impact": "Users can be marked as paid without receiving rewards.",
+                    "affected_component": "RewardDistributor.claimRewards",
+                    "severity": "high",
+                    "aliases": ["Reward distributor transfer check is missing"],
+                    "source_reports": [str(new_report)],
+                    "source_ids": ["SRC-001"],
+                    "evidence": [
+                        {
+                            "source": str(new_report),
+                            "source_id": "SRC-001",
+                            "location": "Reward distributor findings",
+                            "snippet": "Claim flow ignores failed token transfers.",
+                            "original_title": "Unchecked transfer result desynchronizes reward accounting",
+                            "confidence": "high",
+                        }
+                    ],
+                },
+            ]
             state_file.write_text(json.dumps(state_payload, indent=2), encoding="utf-8")
 
             finalize_result = subprocess.run(
@@ -207,9 +246,9 @@ class KnownIssuesCliTests(unittest.TestCase):
             )
             payload = json.loads(finalize_result.stdout)
             self.assertEqual(payload["canonical_issue_count"], 2)
-            sidecar = json.loads(existing_output.with_suffix(".json").read_text(encoding="utf-8"))
-            self.assertEqual(len(sidecar["issues"]), 2)
-            self.assertEqual(len(sidecar["sources"]), 2)
+            merged_payload = json.loads(existing_output.read_text(encoding="utf-8"))
+            self.assertEqual(len(merged_payload["issues"]), 2)
+            self.assertEqual(len(merged_payload["sources"]), 2)
 
     def test_prepare_and_finalize_build_with_claude_extractions(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -311,9 +350,56 @@ class KnownIssuesCliTests(unittest.TestCase):
                     ],
                 },
             ]
+            state_payload["canonical_issues"] = [
+                {
+                    "title": "Unchecked transfer result desynchronizes reward accounting",
+                    "summary": "Claim flow ignores failed token transfers.",
+                    "root_cause": "claimRewards updates accounting before checking transfer success.",
+                    "impact": "Users can be marked as paid without receiving rewards.",
+                    "affected_component": "RewardDistributor.claimRewards",
+                    "severity": "high",
+                    "aliases": [
+                        "Reward distributor transfer check is missing",
+                        "Unchecked transfer result desynchronizes reward accounting",
+                    ],
+                    "source_reports": [str(report_a)],
+                    "source_ids": ["SRC-001"],
+                    "evidence": [
+                        {
+                            "source": str(report_a),
+                            "source_id": "SRC-001",
+                            "location": "Reward distributor findings",
+                            "snippet": "Claim flow ignores failed token transfers.",
+                            "original_title": "Unchecked transfer result desynchronizes reward accounting",
+                            "confidence": "high",
+                        }
+                    ],
+                },
+                {
+                    "title": "Admin can bypass cap checks during emergency mint",
+                    "summary": "Emergency mint path skips cap validation.",
+                    "root_cause": "emergencyMint omits the supply cap validation used by mint.",
+                    "impact": "Total supply can exceed the configured cap.",
+                    "affected_component": "TokenMinter.emergencyMint",
+                    "severity": "medium",
+                    "aliases": ["Admin can bypass cap checks during emergency mint"],
+                    "source_reports": [str(report_b)],
+                    "source_ids": ["SRC-002"],
+                    "evidence": [
+                        {
+                            "source": str(report_b),
+                            "source_id": "SRC-002",
+                            "location": "Emergency mint",
+                            "snippet": "Emergency mint path skips cap validation.",
+                            "original_title": "Admin can bypass cap checks during emergency mint",
+                            "confidence": "medium",
+                        }
+                    ],
+                },
+            ]
             state_file.write_text(json.dumps(state_payload, indent=2), encoding="utf-8")
 
-            output = tmp / "known-issues.md"
+            output = tmp / "known-issues.json"
             finalize_result = subprocess.run(
                 [
                     "python3",
@@ -331,10 +417,10 @@ class KnownIssuesCliTests(unittest.TestCase):
             )
             finalize_payload = json.loads(finalize_result.stdout)
             self.assertEqual(finalize_payload["canonical_issue_count"], 2)
-            sidecar = json.loads(output.with_suffix(".json").read_text(encoding="utf-8"))
-            self.assertEqual(len(sidecar["sources"]), 2)
-            self.assertEqual(sidecar["sources"][1]["extraction_status"], "partial")
-            self.assertIn("Formatting was irregular", sidecar["sources"][1]["warnings"][0])
+            finalized_payload = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(len(finalized_payload["sources"]), 2)
+            self.assertEqual(finalized_payload["sources"][1]["extraction_status"], "partial")
+            self.assertIn("Formatting was irregular", finalized_payload["sources"][1]["warnings"][0])
 
     def test_build_deduplicates_similar_findings(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -369,7 +455,7 @@ class KnownIssuesCliTests(unittest.TestCase):
                 ).strip(),
                 encoding="utf-8",
             )
-            output = tmp / "known-issues.md"
+            output = tmp / "known-issues.json"
 
             result = subprocess.run(
                 [
@@ -391,9 +477,9 @@ class KnownIssuesCliTests(unittest.TestCase):
 
             payload = json.loads(result.stdout)
             self.assertEqual(payload["canonical_issue_count"], 1)
-            markdown = output.read_text(encoding="utf-8")
-            self.assertIn("KI-001", markdown)
-            self.assertIn("RewardDistributor.claimRewards", markdown)
+            register_payload = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(register_payload["issues"][0]["issue_id"], "KI-001")
+            self.assertEqual(register_payload["issues"][0]["affected_component"], "RewardDistributor.claimRewards")
 
     def test_check_flags_new_vs_known(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -413,7 +499,7 @@ class KnownIssuesCliTests(unittest.TestCase):
                 ).strip(),
                 encoding="utf-8",
             )
-            output = tmp / "known-issues.md"
+            output = tmp / "known-issues.json"
             subprocess.run(
                 [
                     "python3",
