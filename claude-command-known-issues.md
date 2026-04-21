@@ -1,7 +1,7 @@
 ---
 description: "Build or check a known-issues register from audit reports"
 argument-hint: [build | check | help]
-allowed-tools: AskUserQuestion, Read, Bash(python3:*)
+allowed-tools: AskUserQuestion, Read, Write, Bash(python3:*)
 ---
 
 Read `~/.claude/known-issues-skill/SKILL.md` and follow its instructions exactly.
@@ -36,6 +36,13 @@ If the mode is `Check issue`, ask a second question:
 
 When building the register:
 
+- At the start of build mode, if `known-issues.md` already exists in the current working directory, use `AskUserQuestion` to ask:
+  - header: `Build mode`
+  - question: `Do you want to extend the existing known-issues register or rebuild from scratch?`
+  - options:
+    - `Extend existing` — Merge new source findings into the current known-issues register and deduplicate again
+    - `Rebuild` — Ignore the current register and rebuild only from the sources provided in this run
+- If no existing `known-issues.md` exists, default to rebuild behavior without asking.
 - Collect any report sources already present in the command arguments and conversation.
 - Then enter a source collection loop using `AskUserQuestion`.
 - In each loop iteration, ask:
@@ -50,7 +57,18 @@ When building the register:
 - If the user selects `Done`, exit the loop.
 - Do not continue to script execution until the user has either provided at least one source or explicitly confirmed they want to stop and revise.
 - If the user exits the loop with zero sources, explain that at least one source is required and offer to restart the source loop.
-- Once the source list is complete, run the helper script in `build` mode.
+- Once the source list is complete, run:
+  - `prepare-build` to download and normalize all sources into a workspace
+  - read the generated `prepared-build.json`
+  - read each normalized source text file listed there
+  - use Claude to extract structured issues for each source into a JSON file
+  - `finalize-build` to merge those Claude extraction results into `known-issues.md`
+- If the user chose `Extend existing`, pass `--merge-known known-issues.md` to `finalize-build`.
+- If the user chose `Rebuild`, do not pass `--merge-known`.
+- The Claude extraction JSON should be structured as:
+  - top-level `source_results`
+  - each result contains `source_id`, `status`, `warnings`, and `issues`
+  - each issue contains `title`, `summary`, `root_cause`, `impact`, `affected_component`, `severity`, `aliases`, `source_location`, `evidence_snippet`, and `extraction_confidence`
 - Default output path: `known-issues.md` in the current working directory unless the user specified another path.
 - Report:
   - source count
@@ -79,6 +97,7 @@ If the user selects `Help`, explain:
 - `/known-issues build ...` can be used directly for scripted flows
 - `/known-issues check ...` can be used directly for duplicate checks
 - report files can be local files and report sources can also be URLs
+- the build flow downloads remote artifacts and extracts PDF text before Claude structures the issues
 
 ## Direct Arguments
 

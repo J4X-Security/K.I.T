@@ -10,14 +10,16 @@ import html
 import json
 import re
 import sys
+import tempfile
 import textwrap
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections import Counter
-from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
+
+import pdfplumber
+from pypdf import PdfReader
 
 
 SEVERITY_WORDS = {
@@ -48,9 +50,16 @@ TITLE_STOPWORDS = {
 
 
 @dataclasses.dataclass
-class SourceDocument:
-    source: str
-    content: str
+class PreparedSource:
+    source_id: str
+    input_source: str
+    resolved_source: str
+    source_type: str
+    local_artifact_path: str
+    normalized_text_path: str
+    extraction_status: str = "pending"
+    warnings: list[str] = dataclasses.field(default_factory=list)
+    sha1: str = ""
 
 
 @dataclasses.dataclass
@@ -63,6 +72,10 @@ class IssueCandidate:
     severity: str
     source: str
     aliases: list[str]
+    source_id: str = ""
+    source_location: str = ""
+    evidence_snippet: str = ""
+    extraction_confidence: str = "medium"
 
 
 @dataclasses.dataclass
@@ -77,43 +90,120 @@ class CanonicalIssue:
     aliases: list[str]
     source_reports: list[str]
     canonical_key: str
+    source_ids: list[str] = dataclasses.field(default_factory=list)
+    evidence: list[dict[str, str]] = dataclasses.field(default_factory=list)
 
 
-def fetch_source(source: str) -> SourceDocument:
-    if re.match(r"^https?://", source, re.IGNORECASE):
-        request = urllib.request.Request(
-            source,
-            headers={
-                "User-Agent": "known-issues-aggregator/1.0",
-                "Accept": "text/plain,text/html,application/json,text/markdown,*/*",
-            },
-        )
-        try:
-            with urllib.request.urlopen(request, timeout=20) as response:
-                charset = response.headers.get_content_charset() or "utf-8"
-                content = response.read().decode(charset, errors="replace")
-        except urllib.error.URLError as exc:
-            raise RuntimeError(f"failed to fetch {source}: {exc}") from exc
-        return SourceDocument(source=source, content=content)
+def is_url(value: str) -> bool:
+    return bool(re.match(r"^https?://", value, re.IGNORECASE))
 
+
+def normalize_remote_url(url: str) -> str:
+    parsed = urllib.parse.urlparse(url)
+    if parsed.netloc == "github.com":
+        parts = [part for part in parsed.path.split("/") if part]
+        if len(parts) >= 5 and parts[2] == "blob":
+            owner, repo = parts[0], parts[1]
+            rest = "/".join(parts[4:])
+            return f"https://raw.githubusercontent.com/{owner}/{repo}/{parts[3]}/{rest}"
+    if parsed.netloc == "raw.githubusercontent.com":
+        return url
+    if parsed.query == "raw=1":
+        return urllib.parse.urlunparse(parsed._replace(query=""))
+    return url
+
+
+def fetch_remote_bytes(source: str) -> tuple[bytes, str, str]:
+    normalized = normalize_remote_url(source)
+    request = urllib.request.Request(
+        normalized,
+        headers={
+            "User-Agent": "known-issues-aggregator/2.0",
+            "Accept": "text/plain,text/html,application/json,text/markdown,application/pdf,*/*",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            payload = response.read()
+            content_type = response.headers.get("Content-Type", "")
+            resolved_url = response.geturl()
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"failed to fetch {source}: {exc}") from exc
+    return payload, resolved_url, content_type
+
+
+def read_local_bytes(source: str) -> tuple[bytes, str, str]:
     path = Path(source)
     if not path.exists():
         raise RuntimeError(f"input path does not exist: {source}")
-    return SourceDocument(source=str(path), content=path.read_text(encoding="utf-8"))
+    suffix = path.suffix.lower()
+    guessed = {
+        ".pdf": "application/pdf",
+        ".json": "application/json",
+        ".html": "text/html",
+        ".htm": "text/html",
+        ".md": "text/markdown",
+        ".markdown": "text/markdown",
+        ".txt": "text/plain",
+    }.get(suffix, "application/octet-stream")
+    return path.read_bytes(), str(path.resolve()), guessed
 
 
-def clean_text(content: str, source: str) -> str:
-    lower_source = source.lower()
+def sha1_hex(payload: bytes) -> str:
+    return hashlib.sha1(payload).hexdigest()
+
+
+def detect_source_type(source: str, resolved_source: str, content_type: str, payload: bytes) -> str:
+    lower_source = f"{source} {resolved_source}".lower()
+    lower_content_type = content_type.lower()
+    if payload.startswith(b"%PDF") or "application/pdf" in lower_content_type or ".pdf" in lower_source:
+        return "pdf"
+    if "application/json" in lower_content_type or lower_source.endswith(".json"):
+        return "json"
+    if "text/html" in lower_content_type or "<html" in payload[:2048].decode("utf-8", errors="ignore").lower():
+        return "html"
+    if lower_source.endswith(".md") or lower_source.endswith(".markdown"):
+        return "markdown"
+    if lower_source.endswith(".txt") or "text/plain" in lower_content_type:
+        return "text"
+    return "text"
+
+
+def write_artifact(workspace_dir: Path, source_id: str, source_type: str, payload: bytes, original_source: str, is_remote: bool) -> Path:
+    downloads_dir = workspace_dir / "downloads"
+    downloads_dir.mkdir(parents=True, exist_ok=True)
+    suffix = infer_suffix(source_type, original_source)
+    if not is_remote:
+        return Path(original_source).resolve()
+    artifact_path = downloads_dir / f"{source_id}{suffix}"
+    artifact_path.write_bytes(payload)
+    return artifact_path
+
+
+def infer_suffix(source_type: str, source: str) -> str:
+    parsed = urllib.parse.urlparse(source)
+    suffix = Path(parsed.path).suffix if parsed.scheme else Path(source).suffix
+    if suffix:
+        return suffix
+    return {
+        "pdf": ".pdf",
+        "json": ".json",
+        "html": ".html",
+        "markdown": ".md",
+        "text": ".txt",
+    }.get(source_type, ".bin")
+
+
+def clean_text(content: str, source_type: str) -> str:
     stripped = content.strip()
-    if lower_source.endswith(".json") or stripped.startswith("{") or stripped.startswith("["):
+    if source_type == "json" or stripped.startswith("{") or stripped.startswith("["):
         try:
             parsed = json.loads(content)
         except json.JSONDecodeError:
             return content
-        strings = list(iter_json_strings(parsed))
-        return "\n".join(strings)
+        return "\n".join(iter_json_strings(parsed))
 
-    if "<html" in content.lower() or "</p>" in content.lower() or "</div>" in content.lower():
+    if source_type == "html" or "<html" in content.lower() or "</p>" in content.lower() or "</div>" in content.lower():
         text = re.sub(r"(?is)<script.*?>.*?</script>", " ", content)
         text = re.sub(r"(?is)<style.*?>.*?</style>", " ", text)
         text = re.sub(r"(?i)<br\s*/?>", "\n", text)
@@ -153,14 +243,78 @@ def iter_json_strings(value: Any) -> list[str]:
     return strings
 
 
-def extract_candidates(doc: SourceDocument) -> list[IssueCandidate]:
-    text = clean_text(doc.content, doc.source)
-    sections = split_sections(text)
-    candidates = [candidate for candidate in (section_to_candidate(section, doc.source) for section in sections) if candidate]
-    if candidates:
-        return candidates
-    fallback = fallback_candidates(text, doc.source)
-    return fallback
+def extract_pdf_text(path: Path) -> str:
+    parts: list[str] = []
+    try:
+        with pdfplumber.open(path) as pdf:
+            for page_index, page in enumerate(pdf.pages, start=1):
+                text = collapse_ws(page.extract_text() or "")
+                if text:
+                    parts.append(f"--- Page {page_index} ---\n{text}")
+    except Exception:
+        parts = []
+    if parts:
+        return "\n\n".join(parts)
+
+    reader = PdfReader(str(path))
+    fallback_parts: list[str] = []
+    for page_index, page in enumerate(reader.pages, start=1):
+        text = collapse_ws(page.extract_text() or "")
+        if text:
+            fallback_parts.append(f"--- Page {page_index} ---\n{text}")
+    return "\n\n".join(fallback_parts)
+
+
+def normalize_source_text(payload: bytes, source_type: str, artifact_path: Path) -> str:
+    if source_type == "pdf":
+        return extract_pdf_text(artifact_path)
+    content = payload.decode("utf-8", errors="replace")
+    return clean_text(content, source_type)
+
+
+def prepare_sources(raw_sources: list[str], workspace_dir: Path) -> tuple[list[PreparedSource], Path]:
+    sources_dir = workspace_dir / "sources"
+    sources_dir.mkdir(parents=True, exist_ok=True)
+
+    prepared_sources: list[PreparedSource] = []
+    for index, raw_source in enumerate(raw_sources, start=1):
+        source_id = f"SRC-{index:03d}"
+        is_remote_source = is_url(raw_source)
+        payload, resolved_source, content_type = (
+            fetch_remote_bytes(raw_source) if is_remote_source else read_local_bytes(raw_source)
+        )
+        source_type = detect_source_type(raw_source, resolved_source, content_type, payload)
+        artifact_path = write_artifact(workspace_dir, source_id, source_type, payload, raw_source, is_remote_source)
+        normalized_text = normalize_source_text(payload, source_type, artifact_path)
+        normalized_path = sources_dir / f"{source_id}.txt"
+        normalized_path.write_text(normalized_text, encoding="utf-8")
+
+        warnings: list[str] = []
+        if not normalized_text.strip():
+            warnings.append("No normalized text extracted from source.")
+        elif len(normalized_text.strip()) < 200:
+            warnings.append("Normalized text is very short; extraction quality may be weak.")
+
+        prepared_sources.append(
+            PreparedSource(
+                source_id=source_id,
+                input_source=raw_source,
+                resolved_source=resolved_source,
+                source_type=source_type,
+                local_artifact_path=str(artifact_path),
+                normalized_text_path=str(normalized_path),
+                warnings=warnings,
+                sha1=sha1_hex(payload),
+            )
+        )
+
+    manifest_path = workspace_dir / "prepared-build.json"
+    manifest = {
+        "workspace_dir": str(workspace_dir),
+        "sources": [dataclasses.asdict(source) for source in prepared_sources],
+    }
+    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
+    return prepared_sources, manifest_path
 
 
 def split_sections(text: str) -> list[str]:
@@ -181,29 +335,25 @@ def split_sections(text: str) -> list[str]:
     return ["\n".join(section).strip() for section in sections if "\n".join(section).strip()]
 
 
-def section_to_candidate(section: str, source: str) -> IssueCandidate | None:
+def extract_candidates_from_text(text: str, source: PreparedSource) -> list[IssueCandidate]:
+    sections = split_sections(text)
+    candidates = [candidate for candidate in (section_to_candidate(section, source) for section in sections) if candidate]
+    if candidates:
+        return candidates
+    return fallback_candidates(text, source)
+
+
+def section_to_candidate(section: str, source: PreparedSource) -> IssueCandidate | None:
     lines = [line.strip() for line in section.splitlines() if line.strip()]
     if not lines:
         return None
 
     title = normalize_title(lines[0])
     body = "\n".join(lines[1:]) if len(lines) > 1 else ""
-    summary = extract_labeled(body, ("summary", "description", "issue", "finding"))
-    if not summary:
-        summary = first_paragraph(body)
-
-    root_cause = extract_labeled(body, ("root cause", "cause", "vulnerability", "bug"))
-    if not root_cause:
-        root_cause = infer_root_cause(body, title)
-
-    impact = extract_labeled(body, ("impact", "risk", "consequence"))
-    if not impact:
-        impact = infer_impact(body)
-
-    component = extract_labeled(body, ("affected component", "component", "module", "contract", "function"))
-    if not component:
-        component = infer_component(section)
-
+    summary = extract_labeled(body, ("summary", "description", "issue", "finding")) or first_paragraph(body)
+    root_cause = extract_labeled(body, ("root cause", "cause", "vulnerability", "bug")) or infer_root_cause(body, title)
+    impact = extract_labeled(body, ("impact", "risk", "consequence")) or infer_impact(body)
+    component = extract_labeled(body, ("affected component", "component", "module", "contract", "function")) or infer_component(section)
     severity = infer_severity(section)
     if not looks_like_issue(title, summary, root_cause, impact, component, severity):
         return None
@@ -215,12 +365,16 @@ def section_to_candidate(section: str, source: str) -> IssueCandidate | None:
         impact=impact or "Impact not explicitly stated in source report.",
         affected_component=component or "Unspecified component",
         severity=severity,
-        source=source,
+        source=source.input_source,
         aliases=[title],
+        source_id=source.source_id,
+        source_location=title,
+        evidence_snippet=(first_paragraph(body) or title)[:300],
+        extraction_confidence="low",
     )
 
 
-def fallback_candidates(text: str, source: str) -> list[IssueCandidate]:
+def fallback_candidates(text: str, source: PreparedSource) -> list[IssueCandidate]:
     candidates: list[IssueCandidate] = []
     bullet_re = re.compile(r"^\s*[-*]\s*(?:\[(?P<sev>[^\]]+)\]\s*)?(?P<title>[^:]+):\s*(?P<body>.+)$")
     for line in text.splitlines():
@@ -240,8 +394,12 @@ def fallback_candidates(text: str, source: str) -> list[IssueCandidate]:
                 impact=infer_impact(body),
                 affected_component=infer_component(f"{title}\n{body}"),
                 severity=severity,
-                source=source,
+                source=source.input_source,
                 aliases=[title],
+                source_id=source.source_id,
+                source_location=title,
+                evidence_snippet=body[:300],
+                extraction_confidence="low",
             )
         )
     return candidates
@@ -311,9 +469,7 @@ def camelize(value: str) -> str:
     parts = [part for part in re.split(r"[^A-Za-z0-9]+", value) if part]
     if not parts:
         return ""
-    first = parts[0].lower()
-    rest = "".join(part[:1].upper() + part[1:].lower() for part in parts[1:])
-    return first + rest
+    return parts[0].lower() + "".join(part[:1].upper() + part[1:].lower() for part in parts[1:])
 
 
 def infer_severity(text: str) -> str:
@@ -361,8 +517,7 @@ def looks_like_issue(title: str, summary: str, root_cause: str, impact: str, com
 def canonical_key_for(candidate: IssueCandidate) -> str:
     component = slugify(candidate.affected_component)
     cause = slugify(candidate.root_cause or candidate.title)
-    key_source = f"{component}:{cause}"
-    digest = hashlib.sha1(key_source.encode("utf-8")).hexdigest()[:10]
+    digest = hashlib.sha1(f"{component}:{cause}".encode("utf-8")).hexdigest()[:10]
     prefix = "-".join(part for part in [component[:20], cause[:28]] if part).strip("-")
     prefix = prefix or slugify(candidate.title)[:32] or "issue"
     return f"{prefix}-{digest}"
@@ -371,12 +526,11 @@ def canonical_key_for(candidate: IssueCandidate) -> str:
 def aggregate_candidates(candidates: list[IssueCandidate]) -> list[CanonicalIssue]:
     canonicals: list[CanonicalIssue] = []
     for candidate in candidates:
-        match_index, _score = best_match(candidate, canonicals)
-        if match_index is None or _score < 0.68:
-            issue_id = f"KI-{len(canonicals) + 1:03d}"
+        match_index, score = best_match(candidate, canonicals)
+        if match_index is None or score < 0.68:
             canonicals.append(
                 CanonicalIssue(
-                    issue_id=issue_id,
+                    issue_id=f"KI-{len(canonicals) + 1:03d}",
                     title=candidate.title,
                     summary=candidate.summary,
                     root_cause=candidate.root_cause,
@@ -386,6 +540,8 @@ def aggregate_candidates(candidates: list[IssueCandidate]) -> list[CanonicalIssu
                     aliases=dedupe_list(candidate.aliases),
                     source_reports=[candidate.source],
                     canonical_key=canonical_key_for(candidate),
+                    source_ids=[candidate.source_id] if candidate.source_id else [],
+                    evidence=[issue_evidence(candidate)],
                 )
             )
             continue
@@ -399,6 +555,8 @@ def aggregate_candidates(candidates: list[IssueCandidate]) -> list[CanonicalIssu
         existing.severity = choose_severity(existing.severity, candidate.severity)
         existing.aliases = dedupe_list(existing.aliases + candidate.aliases + [candidate.title])
         existing.source_reports = dedupe_list(existing.source_reports + [candidate.source])
+        existing.source_ids = dedupe_list(existing.source_ids + ([candidate.source_id] if candidate.source_id else []))
+        existing.evidence = dedupe_evidence(existing.evidence + [issue_evidence(candidate)])
         existing.canonical_key = canonical_key_for(
             IssueCandidate(
                 title=existing.title,
@@ -409,6 +567,7 @@ def aggregate_candidates(candidates: list[IssueCandidate]) -> list[CanonicalIssu
                 severity=existing.severity,
                 source=existing.source_reports[0],
                 aliases=existing.aliases,
+                source_id=existing.source_ids[0] if existing.source_ids else "",
             )
         )
 
@@ -416,6 +575,29 @@ def aggregate_candidates(candidates: list[IssueCandidate]) -> list[CanonicalIssu
     for index, issue in enumerate(canonicals, start=1):
         issue.issue_id = f"KI-{index:03d}"
     return canonicals
+
+
+def issue_evidence(candidate: IssueCandidate) -> dict[str, str]:
+    return {
+        "source": candidate.source,
+        "source_id": candidate.source_id,
+        "location": candidate.source_location,
+        "snippet": candidate.evidence_snippet,
+        "original_title": candidate.title,
+        "confidence": candidate.extraction_confidence,
+    }
+
+
+def dedupe_evidence(items: list[dict[str, str]]) -> list[dict[str, str]]:
+    seen: set[tuple[str, str, str, str]] = set()
+    result: list[dict[str, str]] = []
+    for item in items:
+        key = (item.get("source", ""), item.get("location", ""), item.get("original_title", ""), item.get("snippet", ""))
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(item)
+    return result
 
 
 def best_match(candidate: IssueCandidate, canonicals: list[CanonicalIssue]) -> tuple[int | None, float]:
@@ -467,7 +649,7 @@ def blended_similarity(left: str, right: str) -> float:
         return 0.0
     if left_norm == right_norm:
         return 1.0
-    seq = SequenceMatcher(None, left_norm, right_norm).ratio()
+    seq = __import__("difflib").SequenceMatcher(None, left_norm, right_norm).ratio()
     left_tokens = meaningful_tokens(left_norm)
     right_tokens = meaningful_tokens(right_norm)
     if not left_tokens or not right_tokens:
@@ -550,12 +732,9 @@ def dedupe_list(values: list[str]) -> list[str]:
     seen: set[str] = set()
     result: list[str] = []
     for value in values:
-        if not value:
-            continue
-        if value in seen:
-            continue
-        seen.add(value)
-        result.append(value)
+        if value and value not in seen:
+            seen.add(value)
+            result.append(value)
     return result
 
 
@@ -564,7 +743,7 @@ def slugify(value: str) -> str:
     return re.sub(r"-{2,}", "-", slug)
 
 
-def render_known_issues(issues: list[CanonicalIssue], inputs: list[str]) -> str:
+def render_known_issues(issues: list[CanonicalIssue], inputs: list[str], sources: list[PreparedSource]) -> str:
     lines = [
         "# Known Issues",
         "",
@@ -582,6 +761,13 @@ def render_known_issues(issues: list[CanonicalIssue], inputs: list[str]) -> str:
         lines.append(
             f"| {issue.issue_id} | {issue.severity} | {escape_pipes(issue.affected_component)} | {escape_pipes(issue.title)} | {len(issue.source_reports)} |"
         )
+
+    warning_sources = [source for source in sources if source.warnings or source.extraction_status != "ok"]
+    if warning_sources:
+        lines.extend(["", "## Source Notes", ""])
+        for source in warning_sources:
+            detail = "; ".join(source.warnings) or "No additional detail."
+            lines.append(f"- `{source.source_id}` `{source.input_source}`: {source.extraction_status}. {detail}")
 
     for issue in issues:
         lines.extend(
@@ -609,8 +795,18 @@ def render_known_issues(issues: list[CanonicalIssue], inputs: list[str]) -> str:
                 "### Aliases",
                 "",
                 ", ".join(issue.aliases) if issue.aliases else "None",
+                "",
+                "### Evidence",
+                "",
             ]
         )
+        if issue.evidence:
+            for evidence in issue.evidence[:5]:
+                location = evidence.get("location") or "unknown location"
+                snippet = evidence.get("snippet") or "No snippet available."
+                lines.append(f"- `{evidence.get('source_id', '')}` {location}: {escape_pipes(snippet)}")
+        else:
+            lines.append("No evidence captured.")
     lines.append("")
     return "\n".join(lines)
 
@@ -623,12 +819,13 @@ def wrap_markdown(text: str) -> str:
     return "\n".join(textwrap.wrap(text, width=100)) if len(text) > 100 else text
 
 
-def write_outputs(output_path: Path, issues: list[CanonicalIssue], inputs: list[str]) -> tuple[Path, Path]:
-    markdown = render_known_issues(issues, inputs)
+def write_outputs(output_path: Path, issues: list[CanonicalIssue], inputs: list[str], sources: list[PreparedSource]) -> tuple[Path, Path]:
+    markdown = render_known_issues(issues, inputs, sources)
     output_path.write_text(markdown, encoding="utf-8")
     json_path = output_path.with_suffix(".json")
     payload = {
         "inputs": inputs,
+        "sources": [dataclasses.asdict(source) for source in sources],
         "issues": [dataclasses.asdict(issue) for issue in issues],
     }
     json_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
@@ -639,8 +836,65 @@ def load_known_issues(known_path: Path) -> list[CanonicalIssue]:
     json_path = known_path.with_suffix(".json")
     if json_path.exists():
         payload = json.loads(json_path.read_text(encoding="utf-8"))
-        return [CanonicalIssue(**issue) for issue in payload.get("issues", [])]
+        return [canonical_issue_from_dict(issue) for issue in payload.get("issues", [])]
     return parse_known_issues_markdown(known_path.read_text(encoding="utf-8"))
+
+
+def load_known_payload(known_path: Path) -> tuple[list[CanonicalIssue], list[PreparedSource]]:
+    json_path = known_path.with_suffix(".json")
+    if json_path.exists():
+        payload = json.loads(json_path.read_text(encoding="utf-8"))
+        issues = [canonical_issue_from_dict(issue) for issue in payload.get("issues", [])]
+        sources = [PreparedSource(**source) for source in payload.get("sources", [])]
+        return issues, sources
+    return parse_known_issues_markdown(known_path.read_text(encoding="utf-8")), []
+
+
+def canonical_issue_from_dict(data: dict[str, Any]) -> CanonicalIssue:
+    return CanonicalIssue(
+        issue_id=data.get("issue_id", ""),
+        title=data.get("title", ""),
+        summary=data.get("summary", ""),
+        root_cause=data.get("root_cause", ""),
+        impact=data.get("impact", ""),
+        affected_component=data.get("affected_component", "Unspecified component"),
+        severity=data.get("severity", "unspecified"),
+        aliases=data.get("aliases", []),
+        source_reports=data.get("source_reports", []),
+        canonical_key=data.get("canonical_key", slugify(data.get("title", "issue"))),
+        source_ids=data.get("source_ids", []),
+        evidence=data.get("evidence", []),
+    )
+
+
+def canonical_issue_to_candidate(issue: CanonicalIssue) -> IssueCandidate:
+    evidence = issue.evidence[0] if issue.evidence else {}
+    return IssueCandidate(
+        title=issue.title,
+        summary=issue.summary,
+        root_cause=issue.root_cause,
+        impact=issue.impact,
+        affected_component=issue.affected_component,
+        severity=issue.severity,
+        source=issue.source_reports[0] if issue.source_reports else "existing known issue",
+        aliases=issue.aliases or [issue.title],
+        source_id=issue.source_ids[0] if issue.source_ids else "EXISTING",
+        source_location=evidence.get("location", ""),
+        evidence_snippet=evidence.get("snippet", ""),
+        extraction_confidence=evidence.get("confidence", "high"),
+    )
+
+
+def merge_source_lists(existing_sources: list[PreparedSource], new_sources: list[PreparedSource]) -> list[PreparedSource]:
+    merged: list[PreparedSource] = []
+    seen: set[tuple[str, str]] = set()
+    for source in existing_sources + new_sources:
+        key = (source.source_id, source.input_source)
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(source)
+    return merged
 
 
 def parse_known_issues_markdown(content: str) -> list[CanonicalIssue]:
@@ -735,7 +989,15 @@ def check_issue(known_issues: list[CanonicalIssue], candidate: IssueCandidate) -
 
 
 def parse_new_issue(issue_text: str, label: str = "ad hoc issue") -> IssueCandidate:
-    extracted = extract_candidates(SourceDocument(source=label, content=issue_text))
+    temp_source = PreparedSource(
+        source_id="INLINE",
+        input_source=label,
+        resolved_source=label,
+        source_type="text",
+        local_artifact_path="",
+        normalized_text_path="",
+    )
+    extracted = extract_candidates_from_text(issue_text, temp_source)
     if extracted:
         return extracted[0]
 
@@ -750,6 +1012,8 @@ def parse_new_issue(issue_text: str, label: str = "ad hoc issue") -> IssueCandid
         severity=infer_severity(summary),
         source=label,
         aliases=[title],
+        source_id="INLINE",
+        evidence_snippet=summary[:300],
     )
 
 
@@ -757,26 +1021,154 @@ def collapse_ws(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def run_build(args: argparse.Namespace) -> int:
-    candidates: list[IssueCandidate] = []
-    sources: list[str] = []
-    for raw_source in args.input:
-        doc = fetch_source(raw_source)
-        sources.append(doc.source)
-        extracted = extract_candidates(doc)
-        if not extracted:
-            print(f"warning: no issue candidates extracted from {doc.source}", file=sys.stderr)
-            continue
-        candidates.extend(extracted)
+def create_workspace(workspace_dir: str | None) -> Path:
+    if workspace_dir:
+        path = Path(workspace_dir)
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+    return Path(tempfile.mkdtemp(prefix="known-issues-"))
 
-    issues = aggregate_candidates(candidates)
-    output_path = Path(args.output)
-    markdown_path, json_path = write_outputs(output_path, issues, sources)
+
+def load_prepared_sources(prepared_path: Path) -> tuple[list[PreparedSource], dict[str, PreparedSource]]:
+    payload = json.loads(prepared_path.read_text(encoding="utf-8"))
+    sources = [PreparedSource(**item) for item in payload.get("sources", [])]
+    return sources, {source.source_id: source for source in sources}
+
+
+def normalize_claude_issue(raw_issue: dict[str, Any], source: PreparedSource) -> IssueCandidate:
+    title = collapse_ws(str(raw_issue.get("title", ""))) or "Untitled issue"
+    summary = collapse_ws(str(raw_issue.get("summary", ""))) or title
+    root_cause = collapse_ws(str(raw_issue.get("root_cause", ""))) or title
+    impact = collapse_ws(str(raw_issue.get("impact", ""))) or "Impact not explicitly stated in source report."
+    component = collapse_ws(str(raw_issue.get("affected_component", ""))) or "Unspecified component"
+    severity = normalize_severity(str(raw_issue.get("severity", "")))
+    aliases = raw_issue.get("aliases", [])
+    if not isinstance(aliases, list):
+        aliases = [str(aliases)]
+    location = collapse_ws(str(raw_issue.get("source_location", "")))
+    snippet = collapse_ws(str(raw_issue.get("evidence_snippet", "")))[:300]
+    confidence = collapse_ws(str(raw_issue.get("extraction_confidence", ""))).lower() or "medium"
+    return IssueCandidate(
+        title=title,
+        summary=summary,
+        root_cause=root_cause,
+        impact=impact,
+        affected_component=component,
+        severity=severity,
+        source=source.input_source,
+        aliases=dedupe_list([title] + [str(alias) for alias in aliases]),
+        source_id=source.source_id,
+        source_location=location,
+        evidence_snippet=snippet,
+        extraction_confidence=confidence,
+    )
+
+
+def apply_claude_extractions(prepared_sources: list[PreparedSource], extractions_path: Path) -> list[IssueCandidate]:
+    payload = json.loads(extractions_path.read_text(encoding="utf-8"))
+    source_lookup = {source.source_id: source for source in prepared_sources}
+    results = payload.get("source_results", payload if isinstance(payload, list) else [])
+    candidates: list[IssueCandidate] = []
+    seen_sources: set[str] = set()
+    for result in results:
+        source_id = result.get("source_id", "")
+        if source_id not in source_lookup:
+            continue
+        source = source_lookup[source_id]
+        seen_sources.add(source_id)
+        source.extraction_status = result.get("status", "ok")
+        extra_warnings = result.get("warnings", [])
+        if isinstance(extra_warnings, list):
+            source.warnings = dedupe_list(source.warnings + [str(item) for item in extra_warnings])
+        for raw_issue in result.get("issues", []):
+            candidates.append(normalize_claude_issue(raw_issue, source))
+
+    for source in prepared_sources:
+        if source.source_id not in seen_sources:
+            source.extraction_status = "failed"
+            source.warnings = dedupe_list(source.warnings + ["No Claude extraction result was provided for this source."])
+    return candidates
+
+
+def run_prepare_build(args: argparse.Namespace) -> int:
+    workspace_dir = create_workspace(args.workspace_dir)
+    prepared_sources, manifest_path = prepare_sources(args.input, workspace_dir)
     print(
         json.dumps(
             {
                 "status": "ok",
-                "sources": sources,
+                "workspace_dir": str(workspace_dir),
+                "prepared_manifest": str(manifest_path),
+                "sources": [dataclasses.asdict(source) for source in prepared_sources],
+            },
+            indent=2,
+        )
+    )
+    return 0
+
+
+def run_finalize_build(args: argparse.Namespace) -> int:
+    prepared_sources, _lookup = load_prepared_sources(Path(args.prepared))
+    candidates = apply_claude_extractions(prepared_sources, Path(args.extractions))
+    existing_sources: list[PreparedSource] = []
+    if args.merge_known:
+        existing_issues, existing_sources = load_known_payload(Path(args.merge_known))
+        candidates = [canonical_issue_to_candidate(issue) for issue in existing_issues] + candidates
+    issues = aggregate_candidates(candidates)
+    all_sources = merge_source_lists(existing_sources, prepared_sources)
+    inputs = dedupe_list([source.input_source for source in all_sources])
+    output_path = Path(args.output)
+    markdown_path, json_path = write_outputs(output_path, issues, inputs, all_sources)
+    print(
+        json.dumps(
+            {
+                "status": "ok",
+                "sources": inputs,
+                "candidate_count": len(candidates),
+                "canonical_issue_count": len(issues),
+                "markdown": str(markdown_path),
+                "json": str(json_path),
+            },
+            indent=2,
+        )
+    )
+    return 0
+
+
+def run_build(args: argparse.Namespace) -> int:
+    workspace_dir = create_workspace(args.workspace_dir)
+    prepared_sources, manifest_path = prepare_sources(args.input, workspace_dir)
+    if args.extractions_file:
+        candidates = apply_claude_extractions(prepared_sources, Path(args.extractions_file))
+    else:
+        candidates: list[IssueCandidate] = []
+        for source in prepared_sources:
+            text = Path(source.normalized_text_path).read_text(encoding="utf-8")
+            extracted = extract_candidates_from_text(text, source)
+            if extracted:
+                source.extraction_status = "partial"
+                source.warnings = dedupe_list(source.warnings + ["Used deterministic fallback extraction instead of Claude-assisted extraction."])
+                candidates.extend(extracted)
+            else:
+                source.extraction_status = "failed"
+                source.warnings = dedupe_list(source.warnings + ["No issue candidates extracted from normalized text."])
+
+    existing_sources: list[PreparedSource] = []
+    if args.merge_known:
+        existing_issues, existing_sources = load_known_payload(Path(args.merge_known))
+        candidates = [canonical_issue_to_candidate(issue) for issue in existing_issues] + candidates
+
+    issues = aggregate_candidates(candidates)
+    all_sources = merge_source_lists(existing_sources, prepared_sources)
+    output_path = Path(args.output)
+    markdown_path, json_path = write_outputs(output_path, issues, dedupe_list([source.input_source for source in all_sources]), all_sources)
+    print(
+        json.dumps(
+            {
+                "status": "ok",
+                "workspace_dir": str(workspace_dir),
+                "prepared_manifest": str(manifest_path),
+                "sources": [source.input_source for source in prepared_sources],
                 "candidate_count": len(candidates),
                 "canonical_issue_count": len(issues),
                 "markdown": str(markdown_path),
@@ -808,9 +1200,24 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
 
+    prepare_build = subparsers.add_parser("prepare-build", help="download and normalize sources for Claude-assisted extraction")
+    prepare_build.add_argument("--input", action="append", required=True, help="local path or URL to an audit report")
+    prepare_build.add_argument("--workspace-dir", help="directory where normalized sources should be written")
+    prepare_build.set_defaults(func=run_prepare_build)
+
+    finalize_build = subparsers.add_parser("finalize-build", help="merge Claude extraction results and write known-issues outputs")
+    finalize_build.add_argument("--prepared", required=True, help="path to prepared-build.json")
+    finalize_build.add_argument("--extractions", required=True, help="path to Claude extraction JSON")
+    finalize_build.add_argument("--output", default="known-issues.md", help="output markdown path")
+    finalize_build.add_argument("--merge-known", help="existing known-issues.md to extend instead of rebuilding from scratch")
+    finalize_build.set_defaults(func=run_finalize_build)
+
     build = subparsers.add_parser("build", help="build known-issues.md and known-issues.json from report sources")
     build.add_argument("--input", action="append", required=True, help="local path or URL to an audit report")
     build.add_argument("--output", default="known-issues.md", help="output markdown path")
+    build.add_argument("--workspace-dir", help="directory where downloaded and normalized sources should be written")
+    build.add_argument("--extractions-file", help="Claude extraction JSON produced from prepare-build output")
+    build.add_argument("--merge-known", help="existing known-issues.md to extend instead of rebuilding from scratch")
     build.set_defaults(func=run_build)
 
     check = subparsers.add_parser("check", help="check whether a new issue is already known")

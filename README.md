@@ -9,6 +9,8 @@ It supports two workflows:
 
 The skill package lives in [`claude-skill-known-issues/`](./claude-skill-known-issues).
 
+The recommended extraction mode is Claude-first: the script downloads and normalizes sources, including PDFs, and Claude structures issue records from that prepared text before final deduplication.
+
 ## What It Produces
 
 - `known-issues.md`: human-readable canonical issue register
@@ -133,10 +135,41 @@ You can invoke the helper directly from this repository or from the installed sk
 
 ### Build a canonical known issues file
 
+Recommended Claude-first flow:
+
+```bash
+python3 claude-skill-known-issues/scripts/known_issues.py prepare-build \
+  --input /path/to/report-1.md \
+  --input https://example.com/report-2.pdf \
+  --workspace-dir .known-issues-work
+```
+
+Then read `.known-issues-work/prepared-build.json`, extract issue records with Claude from the normalized source text files, write them to a JSON file, and finalize:
+
+```bash
+python3 claude-skill-known-issues/scripts/known_issues.py finalize-build \
+  --prepared .known-issues-work/prepared-build.json \
+  --extractions claude-extractions.json \
+  --output known-issues.md
+```
+
+To extend an existing register instead of rebuilding from scratch:
+
+```bash
+python3 claude-skill-known-issues/scripts/known_issues.py finalize-build \
+  --prepared .known-issues-work/prepared-build.json \
+  --extractions claude-extractions.json \
+  --merge-known known-issues.md \
+  --output known-issues.md
+```
+
+Direct fallback flow:
+
 ```bash
 python3 claude-skill-known-issues/scripts/known_issues.py build \
   --input /path/to/report-1.md \
   --input https://example.com/report-2 \
+  --merge-known known-issues.md \
   --output known-issues.md
 ```
 
@@ -144,6 +177,8 @@ This writes:
 
 - `known-issues.md`
 - `known-issues.json`
+
+In Claude-first mode, `known-issues.json` also contains per-source extraction metadata, warnings, and evidence provenance.
 
 ### Check whether a new issue is already known
 
@@ -171,5 +206,6 @@ The command returns JSON containing:
 ## Notes
 
 - v1 is strongest on text-like Markdown, HTML, and JSON reports.
-- PDF parsing is not implemented.
+- URLs and PDFs are downloaded locally before normalization.
+- PDF text extraction is implemented through Python PDF libraries, then Claude is expected to structure issues from the normalized text.
 - Duplicate detection is heuristic and semantic, not exact-title-only.
