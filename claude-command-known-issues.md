@@ -101,15 +101,14 @@ When checking a new issue:
   - for each finding in `findings`, do one Claude judgment against the full `known_issues` list
   - if delegation is available and there are multiple findings, prefer one worker per finding so these checks can run in parallel
   - return one verdict per finding with rationale and the closest known issue when relevant
-- If a deterministic fallback is needed, use the helper script with `check --issue-file` or `check --issue-text`.
+- If staged LLM output is missing or incomplete, fail instead of guessing.
 
 ## Help Flow
 
 If the user selects `Help`, explain:
 
 - `/known-issues` opens the chooser
-- `/known-issues build ...` can be used directly for scripted flows
-- `/known-issues check ...` can be used directly for duplicate checks
+- `/known-issues` uses staged JSON workflows for both build and check
 - report files can be local files and report sources can also be URLs
 - the build flow downloads remote artifacts and extracts PDF text before Claude structures the issues
 

@@ -103,25 +103,9 @@ Recommended staged check flow:
 4. If the host supports delegation and there are multiple findings, prefer one delegated worker per finding so the duplicate checks can run in parallel.
 5. Return one verdict per finding with rationale and the closest known issue when relevant.
 
-Deterministic fallback:
-
-```bash
-python3 claude-skill-known-issues/scripts/known_issues.py check \
-  --known known-issues.json \
-  --issue-file path/to/new-issue.md
-```
-
-Or:
-
-```bash
-python3 claude-skill-known-issues/scripts/known_issues.py check \
-  --known known-issues.json \
-  --issue-text "Unchecked return value in reward distributor can leave accounting inconsistent after external transfer failure."
-```
-
 Behavior:
 
-- `prepare-check` is preferred when a report may contain multiple findings or when you want one model judgment per finding
+- `prepare-check` is required when checking one or more findings against the known register
 
 ## Operating Rules
 

@@ -68,9 +68,7 @@ The wrapper delegates to the shared engine from this repository and exposes the 
 
 - `prepare-build`
 - `finalize-build`
-- `build`
 - `prepare-check`
-- `check`
 
 ## Build Workflow
 
@@ -152,22 +150,6 @@ Then:
 4. If there is only one finding, or if subagents are not available, do the judgment in the main thread.
 5. Return one verdict per finding with rationale and the closest known issue when relevant.
 
-Deterministic fallback:
-
-```bash
-python3 ~/.codex/skills/known-issues-aggregator/scripts/known_issues.py check \
-  --known known-issues.json \
-  --issue-text "Unchecked transfer result can desynchronize reward accounting."
-```
-
-Or:
-
-```bash
-python3 ~/.codex/skills/known-issues-aggregator/scripts/known_issues.py check \
-  --known known-issues.json \
-  --issue-file path/to/new-issue.md
-```
-
 ## Operating Rules
 
 - The first step is always an explicit user choice flow. Do not jump directly into build or check execution.
@@ -178,6 +160,7 @@ python3 ~/.codex/skills/known-issues-aggregator/scripts/known_issues.py check \
 - In the staged flow, the model is responsible for deduping extracted findings and, in extend mode, deduping them against `existing_issues_snapshot` before writing the final canonical issues into `canonical_issues`.
 - In check mode, prefer `prepare-check` and make one model judgment per finding against the full known register.
 - When multiple findings are present and delegation is available, parallelize by spawning one subagent per finding.
+- Do not use deterministic fallback for build or check. If staged LLM output is missing, fail instead of guessing.
 - Treat `known-issues.json` as the only canonical artifact.
 - During staged builds, reuse the same `known-issues.json` file instead of creating separate preview or extraction JSON files.
 - Preserve source traceability, aliases, source locations, and evidence snippets where available.

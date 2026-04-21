@@ -95,15 +95,11 @@ Available commands:
 
 - `prepare-build`
 - `finalize-build`
-- `build`
 - `prepare-check`
-- `check`
 
 ## Build Workflow
 
-There are two ways to build the register.
-
-### Recommended: staged model-assisted flow
+Use the staged model-assisted flow to build the register.
 
 Use this when sources are messy, mixed-format, PDF-based, or likely to need model judgment.
 
@@ -128,18 +124,6 @@ Then:
 ```bash
 python3 claude-skill-known-issues/scripts/known_issues.py finalize-build \
   --state-file known-issues.json \
-  --merge-known known-issues.json \
-  --output known-issues.json
-```
-
-### Fallback: deterministic direct build
-
-Use this when you just want a quick scripted run without the staged model workflow.
-
-```bash
-python3 claude-skill-known-issues/scripts/known_issues.py build \
-  --input /path/to/report.md \
-  --input https://example.com/report \
   --merge-known known-issues.json \
   --output known-issues.json
 ```
@@ -170,31 +154,6 @@ This writes a staged JSON file containing:
 The intended host flow is to evaluate one finding at a time against the full known register.
 
 When multiple findings are present and the host supports delegation, the intended pattern is one subagent per finding so those duplicate checks can run in parallel.
-
-Deterministic fallback:
-
-```bash
-python3 claude-skill-known-issues/scripts/known_issues.py check \
-  --known known-issues.json \
-  --issue-text "Unchecked transfer result can desynchronize reward accounting."
-```
-
-Or:
-
-```bash
-python3 claude-skill-known-issues/scripts/known_issues.py check \
-  --known known-issues.json \
-  --issue-file /path/to/new-issue.md
-```
-
-If the issue file contains multiple findings, `check` will parse all of them and return a batch result with one verdict per finding.
-
-The result is JSON with:
-
-- `verdict`
-- `confidence`
-- `matched_issue` when relevant
-- `rationale`
 
 ## Notes
 

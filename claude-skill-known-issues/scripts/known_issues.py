@@ -30,23 +30,6 @@ SEVERITY_WORDS = {
     "info",
 }
 
-TITLE_STOPWORDS = {
-    "the",
-    "a",
-    "an",
-    "and",
-    "or",
-    "of",
-    "to",
-    "for",
-    "in",
-    "on",
-    "with",
-    "via",
-    "from",
-    "by",
-}
-
 SUPPORTED_REPORT_SUFFIXES = {
     ".pdf",
     ".md",
@@ -667,60 +650,6 @@ def canonical_key_for_issue(issue: CanonicalIssueDraft | CanonicalIssue) -> str:
     return canonical_key_for(candidate)
 
 
-def aggregate_candidates(candidates: list[IssueCandidate]) -> list[CanonicalIssue]:
-    canonicals: list[CanonicalIssue] = []
-    for candidate in candidates:
-        match_index, score = best_match(candidate, canonicals)
-        if match_index is None or score < 0.68:
-            canonicals.append(
-                CanonicalIssue(
-                    issue_id=f"KI-{len(canonicals) + 1:03d}",
-                    title=candidate.title,
-                    summary=candidate.summary,
-                    root_cause=candidate.root_cause,
-                    impact=candidate.impact,
-                    affected_component=candidate.affected_component,
-                    severity=candidate.severity,
-                    aliases=dedupe_list(candidate.aliases),
-                    source_reports=[candidate.source],
-                    canonical_key=canonical_key_for(candidate),
-                    source_ids=[candidate.source_id] if candidate.source_id else [],
-                    evidence=[issue_evidence(candidate)],
-                )
-            )
-            continue
-
-        existing = canonicals[match_index]
-        existing.title = prefer_longer(existing.title, candidate.title)
-        existing.summary = prefer_longer(existing.summary, candidate.summary)
-        existing.root_cause = prefer_longer(existing.root_cause, candidate.root_cause)
-        existing.impact = prefer_longer(existing.impact, candidate.impact)
-        existing.affected_component = choose_component(existing.affected_component, candidate.affected_component)
-        existing.severity = choose_severity(existing.severity, candidate.severity)
-        existing.aliases = dedupe_list(existing.aliases + candidate.aliases + [candidate.title])
-        existing.source_reports = dedupe_list(existing.source_reports + [candidate.source])
-        existing.source_ids = dedupe_list(existing.source_ids + ([candidate.source_id] if candidate.source_id else []))
-        existing.evidence = dedupe_evidence(existing.evidence + [issue_evidence(candidate)])
-        existing.canonical_key = canonical_key_for(
-            IssueCandidate(
-                title=existing.title,
-                summary=existing.summary,
-                root_cause=existing.root_cause,
-                impact=existing.impact,
-                affected_component=existing.affected_component,
-                severity=existing.severity,
-                source=existing.source_reports[0],
-                aliases=existing.aliases,
-                source_id=existing.source_ids[0] if existing.source_ids else "",
-            )
-        )
-
-    canonicals.sort(key=lambda issue: (severity_rank(issue.severity), issue.title.lower()))
-    for index, issue in enumerate(canonicals, start=1):
-        issue.issue_id = f"KI-{index:03d}"
-    return canonicals
-
-
 def canonical_issue_from_draft(index: int, draft: CanonicalIssueDraft) -> CanonicalIssue:
     return CanonicalIssue(
         issue_id=f"KI-{index:03d}",
@@ -759,122 +688,6 @@ def dedupe_evidence(items: list[dict[str, str]]) -> list[dict[str, str]]:
         seen.add(key)
         result.append(item)
     return result
-
-
-def best_match(candidate: IssueCandidate, canonicals: list[CanonicalIssue]) -> tuple[int | None, float]:
-    best_index: int | None = None
-    best_score = 0.0
-    for index, canonical in enumerate(canonicals):
-        score = similarity_scores(
-            candidate.title,
-            canonical.title,
-            candidate.root_cause,
-            canonical.root_cause,
-            candidate.affected_component,
-            canonical.affected_component,
-            candidate.impact,
-            canonical.impact,
-        )
-        if score > best_score:
-            best_index = index
-            best_score = score
-    return best_index, best_score
-
-
-def similarity_scores(
-    title_a: str,
-    title_b: str,
-    cause_a: str,
-    cause_b: str,
-    component_a: str,
-    component_b: str,
-    impact_a: str,
-    impact_b: str,
-) -> float:
-    title_score = blended_similarity(title_a, title_b)
-    cause_score = blended_similarity(cause_a, cause_b)
-    component_score = blended_similarity(component_a, component_b)
-    impact_score = blended_similarity(impact_a, impact_b)
-    bonus = 0.0
-    if component_score >= 0.9 and (cause_score >= 0.45 or title_score >= 0.5):
-        bonus += 0.12
-    if component_score >= 0.75 and cause_score >= 0.55:
-        bonus += 0.08
-    return min(1.0, (0.3 * title_score) + (0.35 * cause_score) + (0.25 * component_score) + (0.1 * impact_score) + bonus)
-
-
-def blended_similarity(left: str, right: str) -> float:
-    left_norm = canonicalize_similarity_text(left)
-    right_norm = canonicalize_similarity_text(right)
-    if not left_norm or not right_norm:
-        return 0.0
-    if left_norm == right_norm:
-        return 1.0
-    seq = __import__("difflib").SequenceMatcher(None, left_norm, right_norm).ratio()
-    left_tokens = meaningful_tokens(left_norm)
-    right_tokens = meaningful_tokens(right_norm)
-    if not left_tokens or not right_tokens:
-        return seq
-    overlap = len(left_tokens & right_tokens) / len(left_tokens | right_tokens)
-    return max(seq, overlap)
-
-
-def meaningful_tokens(value: str) -> set[str]:
-    return {token for token in re.findall(r"[a-z0-9_]+", canonicalize_similarity_text(value)) if token not in TITLE_STOPWORDS and len(token) > 2}
-
-
-def canonicalize_similarity_text(value: str) -> str:
-    text = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", value)
-    text = collapse_ws(text).lower()
-    replacements = {
-        "does not": "missingcheck",
-        "do not": "missingcheck",
-        "fails to": "missingcheck",
-        "failed to": "missingcheck",
-        "failure to": "missingcheck",
-        "without": "missingcheck",
-        "unchecked": "missingcheck",
-        "unvalidated": "missingcheck",
-        "omits": "missingcheck",
-        "omitted": "missingcheck",
-        "skips": "missingcheck",
-        "skipped": "missingcheck",
-        "bypass": "missingcheck",
-        "bypasses": "missingcheck",
-        "validation": "check",
-        "validate": "check",
-        "verifies": "check",
-        "verify": "check",
-        "return value": "transfer_result",
-        "transfer result": "transfer_result",
-        "transfer success": "transfer_result",
-        "paid without receiving tokens": "accounting_desync",
-        "no tokens are delivered": "accounting_desync",
-        "reward accounting": "accounting_desync",
-        "accounting updated": "accounting_desync",
-        "supply cap": "cap",
-        "configured cap": "cap",
-        "emergency mint": "emergencymint",
-    }
-    for old, new in replacements.items():
-        text = text.replace(old, new)
-    return text
-
-
-def prefer_longer(left: str, right: str) -> str:
-    return left if len(left) >= len(right) else right
-
-
-def choose_component(left: str, right: str) -> str:
-    if left == "Unspecified component":
-        return right
-    if right == "Unspecified component":
-        return left
-    return prefer_longer(left, right)
-
-
-def choose_severity(left: str, right: str) -> str:
-    return left if severity_rank(left) <= severity_rank(right) else right
 
 
 def severity_rank(value: str) -> int:
@@ -999,10 +812,21 @@ def apply_llm_deduplication_from_payload(payload: dict[str, Any]) -> list[Canoni
 
 
 def require_llm_canonical_issues(payload: dict[str, Any]) -> list[CanonicalIssue]:
-    issues = apply_llm_deduplication_from_payload(payload)
-    if issues is None:
+    raw_issues = payload.get("canonical_issues")
+    if not isinstance(raw_issues, list):
         raise RuntimeError(
             "missing canonical_issues in staged JSON; LLM-authored dedupe is required"
+        )
+    issues = apply_llm_deduplication_from_payload(payload) or []
+    extracted_issue_count = sum(
+        len(result.get("issues", []))
+        for result in payload.get("source_results", [])
+        if isinstance(result, dict)
+    )
+    existing_issue_count = len(payload.get("existing_issues_snapshot", []))
+    if not issues and (extracted_issue_count > 0 or existing_issue_count > 0):
+        raise RuntimeError(
+            "empty canonical_issues in staged JSON; LLM-authored dedupe is required"
         )
     return issues
 
@@ -1035,57 +859,6 @@ def merge_source_lists(existing_sources: list[PreparedSource], new_sources: list
         seen.add(key)
         merged.append(source)
     return merged
-
-
-def check_issue(known_issues: list[CanonicalIssue], candidate: IssueCandidate) -> dict[str, Any]:
-    best: CanonicalIssue | None = None
-    best_score = 0.0
-    for issue in known_issues:
-        score = similarity_scores(
-            candidate.title,
-            issue.title,
-            candidate.root_cause,
-            issue.root_cause,
-            candidate.affected_component,
-            issue.affected_component,
-            candidate.impact,
-            issue.impact,
-        )
-        if score > best_score:
-            best = issue
-            best_score = score
-
-    if best is None:
-        return {
-            "verdict": "new",
-            "confidence": "low",
-            "score": 0.0,
-            "rationale": "No known issues were available for comparison.",
-        }
-
-    if best_score >= 0.66:
-        verdict = "known"
-        confidence = "high"
-    elif best_score >= 0.5:
-        verdict = "possibly-known"
-        confidence = "medium"
-    else:
-        verdict = "new"
-        confidence = "medium"
-
-    overlap = sorted(meaningful_tokens(candidate.root_cause + " " + candidate.title) & meaningful_tokens(best.root_cause + " " + best.title))
-    rationale = (
-        f"Compared title, root cause, affected component, and impact. "
-        f"Closest match is {best.issue_id} ({best.title}) with similarity score {best_score:.2f}. "
-        f"Shared terms: {', '.join(overlap[:8]) or 'none'}."
-    )
-    return {
-        "verdict": verdict,
-        "confidence": confidence,
-        "score": round(best_score, 3),
-        "matched_issue": dataclasses.asdict(best),
-        "rationale": rationale,
-    }
 
 
 def parse_new_issue(issue_text: str, label: str = "ad hoc issue") -> IssueCandidate:
@@ -1313,18 +1086,6 @@ def run_finalize_build(args: argparse.Namespace) -> int:
     return 0
 
 
-def run_build(args: argparse.Namespace) -> int:
-    raise RuntimeError(
-        "direct build is disabled; use prepare-build, have the LLM write source_results and canonical_issues, then run finalize-build"
-    )
-
-
-def run_check(args: argparse.Namespace) -> int:
-    raise RuntimeError(
-        "direct check is disabled; use prepare-check and have the LLM evaluate each finding against known_issues"
-    )
-
-
 def run_prepare_check(args: argparse.Namespace) -> int:
     known_path = Path(args.known)
     known_issues = load_known_issues(known_path)
@@ -1376,14 +1137,6 @@ def build_parser() -> argparse.ArgumentParser:
     finalize_build.add_argument("--merge-known", help="existing known-issues.json to extend instead of rebuilding from scratch")
     finalize_build.set_defaults(func=run_finalize_build)
 
-    build = subparsers.add_parser("build", help="build known-issues.json from report sources")
-    build.add_argument("--input", action="append", required=True, help="local path or URL to an audit report")
-    build.add_argument("--output", default="known-issues.json", help="output JSON path")
-    build.add_argument("--workspace-dir", help="directory where downloaded and normalized sources should be written")
-    build.add_argument("--extractions-file", help="Claude extraction JSON produced from prepare-build output")
-    build.add_argument("--merge-known", help="existing known-issues.json to extend instead of rebuilding from scratch")
-    build.set_defaults(func=run_build)
-
     prepare_check = subparsers.add_parser("prepare-check", help="prepare one or more findings for model-assisted duplicate checking")
     prepare_check.add_argument("--known", required=True, help="path to known-issues.json")
     prepare_check.add_argument("--output", default="known-issues-check.json", help="output JSON path for staged duplicate checking")
@@ -1391,13 +1144,6 @@ def build_parser() -> argparse.ArgumentParser:
     prepare_group.add_argument("--issue-file", help="path to a file containing one or more findings")
     prepare_group.add_argument("--issue-text", help="inline issue text")
     prepare_check.set_defaults(func=run_prepare_check)
-
-    check = subparsers.add_parser("check", help="check whether a new issue is already known")
-    check.add_argument("--known", required=True, help="path to known-issues.json")
-    group = check.add_mutually_exclusive_group(required=True)
-    group.add_argument("--issue-file", help="path to a file containing the new issue")
-    group.add_argument("--issue-text", help="inline issue text")
-    check.set_defaults(func=run_check)
 
     return parser
 
