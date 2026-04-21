@@ -18,6 +18,8 @@ Use the helper script whenever the task includes any of:
 
 - multiple audit report files
 - report URLs
+- local audit directories or whole local repos
+- GitHub repo URLs or GitHub folder URLs that contain audits
 - regenerating `known-issues.md`
 - checking a new issue against an existing known-issues file
 
@@ -30,7 +32,8 @@ For Claude-first extraction, use the staged workflow:
 ```bash
 python3 claude-skill-known-issues/scripts/known_issues.py prepare-build \
   --input path/to/report-1.md \
-  --input https://example.com/report-2 \
+  --input path/to/audits-folder \
+  --input https://github.com/org/audit-repo/tree/main/reports \
   --workspace-dir .known-issues-work
 ```
 
@@ -71,6 +74,8 @@ python3 claude-skill-known-issues/scripts/known_issues.py build \
 Behavior:
 
 - accepts repeated `--input` values for local paths and HTTP(S) URLs
+- local directory inputs are expanded recursively into supported audit-like files
+- GitHub repo and folder URLs are expanded into supported audit-like files before download
 - downloads remote artifacts locally
 - extracts PDF text before issue extraction
 - supports Claude-first extraction through `prepare-build` and `finalize-build`

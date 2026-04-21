@@ -48,6 +48,28 @@ TITLE_STOPWORDS = {
     "by",
 }
 
+SUPPORTED_REPORT_SUFFIXES = {
+    ".pdf",
+    ".md",
+    ".markdown",
+    ".txt",
+    ".html",
+    ".htm",
+    ".json",
+}
+
+AUDIT_PATH_HINTS = (
+    "audit",
+    "audits",
+    "report",
+    "reports",
+    "finding",
+    "findings",
+    "security",
+    "assessment",
+    "review",
+)
+
 
 @dataclasses.dataclass
 class PreparedSource:
@@ -98,6 +120,35 @@ def is_url(value: str) -> bool:
     return bool(re.match(r"^https?://", value, re.IGNORECASE))
 
 
+def is_supported_report_path(path_value: str) -> bool:
+    return Path(path_value).suffix.lower() in SUPPORTED_REPORT_SUFFIXES
+
+
+def looks_like_audit_path(path_value: str) -> bool:
+    lowered = path_value.lower()
+    return any(hint in lowered for hint in AUDIT_PATH_HINTS)
+
+
+def parse_github_container_url(url: str) -> dict[str, str] | None:
+    parsed = urllib.parse.urlparse(url)
+    if parsed.netloc != "github.com":
+        return None
+    parts = [part for part in parsed.path.split("/") if part]
+    if len(parts) < 2:
+        return None
+    owner, repo = parts[0], parts[1]
+    if len(parts) == 2:
+        return {"owner": owner, "repo": repo, "ref": "", "path": ""}
+    if len(parts) >= 4 and parts[2] == "tree":
+        return {
+            "owner": owner,
+            "repo": repo,
+            "ref": parts[3],
+            "path": "/".join(parts[4:]),
+        }
+    return None
+
+
 def normalize_remote_url(url: str) -> str:
     parsed = urllib.parse.urlparse(url)
     if parsed.netloc == "github.com":
@@ -111,6 +162,76 @@ def normalize_remote_url(url: str) -> str:
     if parsed.query == "raw=1":
         return urllib.parse.urlunparse(parsed._replace(query=""))
     return url
+
+
+def fetch_json(url: str) -> Any:
+    request = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "known-issues-aggregator/2.0",
+            "Accept": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return json.loads(response.read().decode("utf-8", errors="replace"))
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"failed to fetch {url}: {exc}") from exc
+
+
+def github_default_branch(owner: str, repo: str) -> str:
+    payload = fetch_json(f"https://api.github.com/repos/{owner}/{repo}")
+    default_branch = payload.get("default_branch")
+    if not isinstance(default_branch, str) or not default_branch:
+        raise RuntimeError(f"could not determine default branch for https://github.com/{owner}/{repo}")
+    return default_branch
+
+
+def expand_github_container(url: str) -> list[str]:
+    parsed = parse_github_container_url(url)
+    if parsed is None:
+        return [url]
+    owner = parsed["owner"]
+    repo = parsed["repo"]
+    ref = parsed["ref"] or github_default_branch(owner, repo)
+    base_path = parsed["path"].strip("/")
+    tree_payload = fetch_json(f"https://api.github.com/repos/{owner}/{repo}/git/trees/{urllib.parse.quote(ref, safe='')}?recursive=1")
+    tree_items = tree_payload.get("tree", [])
+    candidate_paths = [
+        item["path"]
+        for item in tree_items
+        if item.get("type") == "blob"
+        and isinstance(item.get("path"), str)
+        and is_supported_report_path(item["path"])
+        and (not base_path or item["path"].startswith(base_path + "/") or item["path"] == base_path)
+    ]
+    audit_paths = [path for path in candidate_paths if looks_like_audit_path(path)]
+    selected_paths = audit_paths or candidate_paths
+    return [f"https://raw.githubusercontent.com/{owner}/{repo}/{ref}/{path}" for path in selected_paths]
+
+
+def expand_local_directory(path: Path) -> list[str]:
+    candidate_paths = [
+        file_path.resolve().as_posix()
+        for file_path in path.rglob("*")
+        if file_path.is_file() and is_supported_report_path(file_path.as_posix())
+    ]
+    audit_paths = [candidate for candidate in candidate_paths if looks_like_audit_path(candidate)]
+    return audit_paths or candidate_paths
+
+
+def expand_raw_sources(raw_sources: list[str]) -> list[str]:
+    expanded: list[str] = []
+    for raw_source in raw_sources:
+        if is_url(raw_source):
+            expanded.extend(expand_github_container(raw_source))
+            continue
+        local_path = Path(raw_source)
+        if local_path.exists() and local_path.is_dir():
+            expanded.extend(expand_local_directory(local_path))
+            continue
+        expanded.append(raw_source)
+    return dedupe_list(expanded)
 
 
 def fetch_remote_bytes(source: str) -> tuple[bytes, str, str]:
@@ -276,8 +397,9 @@ def prepare_sources(raw_sources: list[str], workspace_dir: Path) -> tuple[list[P
     sources_dir = workspace_dir / "sources"
     sources_dir.mkdir(parents=True, exist_ok=True)
 
+    expanded_sources = expand_raw_sources(raw_sources)
     prepared_sources: list[PreparedSource] = []
-    for index, raw_source in enumerate(raw_sources, start=1):
+    for index, raw_source in enumerate(expanded_sources, start=1):
         source_id = f"SRC-{index:03d}"
         is_remote_source = is_url(raw_source)
         payload, resolved_source, content_type = (
@@ -311,6 +433,8 @@ def prepare_sources(raw_sources: list[str], workspace_dir: Path) -> tuple[list[P
     manifest_path = workspace_dir / "prepared-build.json"
     manifest = {
         "workspace_dir": str(workspace_dir),
+        "requested_inputs": raw_sources,
+        "expanded_inputs": expanded_sources,
         "sources": [dataclasses.asdict(source) for source in prepared_sources],
     }
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")

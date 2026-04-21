@@ -1,5 +1,7 @@
 import json
+import importlib.util
 import subprocess
+import sys
 import tempfile
 import textwrap
 import unittest
@@ -8,9 +10,91 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "claude-skill-known-issues" / "scripts" / "known_issues.py"
+CODEX_WRAPPER = ROOT / "codex-skill-known-issues" / "scripts" / "known_issues.py"
 
 
 class KnownIssuesCliTests(unittest.TestCase):
+    def test_codex_wrapper_exposes_shared_engine_help(self) -> None:
+        result = subprocess.run(
+            ["python3", str(CODEX_WRAPPER), "--help"],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        self.assertIn("prepare-build", result.stdout)
+        self.assertIn("finalize-build", result.stdout)
+
+    def test_build_accepts_local_directory_input(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            audit_dir = tmp / "audits"
+            audit_dir.mkdir()
+            (audit_dir / "report-one.md").write_text(
+                textwrap.dedent(
+                    """
+                    # Missing transfer validation
+
+                    Severity: High
+                    Summary: Claim flow ignores failed token transfers.
+                    Root Cause: claimRewards updates accounting before checking transfer success.
+                    Impact: Users can be recorded as paid without receiving rewards.
+                    Affected Component: RewardDistributor.claimRewards
+                    """
+                ).strip(),
+                encoding="utf-8",
+            )
+            (audit_dir / "report-two.md").write_text(
+                textwrap.dedent(
+                    """
+                    # Cap bypass in emergency mint
+
+                    Severity: Medium
+                    Summary: Emergency mint path skips cap validation.
+                    Root Cause: emergencyMint omits the supply cap validation used by mint.
+                    Impact: Total supply can exceed the configured cap.
+                    Affected Component: TokenMinter.emergencyMint
+                    """
+                ).strip(),
+                encoding="utf-8",
+            )
+            output = tmp / "known-issues.md"
+            result = subprocess.run(
+                [
+                    "python3",
+                    str(SCRIPT),
+                    "build",
+                    "--input",
+                    str(audit_dir),
+                    "--output",
+                    str(output),
+                ],
+                cwd=ROOT,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["canonical_issue_count"], 2)
+
+    def test_parse_github_repo_and_folder_urls(self) -> None:
+        spec = importlib.util.spec_from_file_location("known_issues", SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        assert spec.loader is not None
+        spec.loader.exec_module(module)
+
+        repo_url = "https://github.com/openai/example-audits"
+        folder_url = "https://github.com/openai/example-audits/tree/main/reports/2024"
+        self.assertEqual(
+            module.parse_github_container_url(repo_url),
+            {"owner": "openai", "repo": "example-audits", "ref": "", "path": ""},
+        )
+        self.assertEqual(
+            module.parse_github_container_url(folder_url),
+            {"owner": "openai", "repo": "example-audits", "ref": "main", "path": "reports/2024"},
+        )
+
     def test_finalize_build_can_extend_existing_register(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp = Path(tmpdir)

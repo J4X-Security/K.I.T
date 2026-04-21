@@ -49,11 +49,22 @@ When building the register:
   - header: `Add source`
   - question: `What do you want to add next?`
   - options:
-    - `Local path` — Add one local report file path
-    - `URL` — Add one report URL
+    - `Local path` — Add one local report file path or a local directory containing audits
+    - `URL` — Add one report URL, GitHub folder URL, or whole GitHub repo URL
     - `Done` — Stop adding sources and continue
 - If the user selects `Local path`, ask them for exactly one path in their next message, add it to the source list, then return to the same loop.
+- Local paths may be:
+  - a single report file
+  - a whole local subfolder
+  - a whole local repo directory
+- If the path is a directory, the build step should recursively collect supported audit-like files from it.
 - If the user selects `URL`, ask them for exactly one URL in their next message, add it to the source list, then return to the same loop.
+- URLs may be:
+  - a single report URL
+  - a GitHub file URL
+  - a GitHub repo subfolder URL
+  - a whole GitHub repo URL
+- GitHub repo and folder URLs should expand to supported audit-like files within that container before preparation.
 - If the user selects `Done`, exit the loop.
 - Do not continue to script execution until the user has either provided at least one source or explicitly confirmed they want to stop and revise.
 - If the user exits the loop with zero sources, explain that at least one source is required and offer to restart the source loop.
