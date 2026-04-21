@@ -1,178 +1,63 @@
 # Known Issues Aggregator
 
-This repository contains shared known-issues tooling plus host-specific integrations for Claude and Codex.
+Build and maintain a single `known-issues.json` register from audit reports, then check whether a newly reported issue is already known.
 
-It supports two workflows:
+This repo supports:
 
-- build `known-issues.json` from a set of audit reports provided as local file paths or URLs
-- check whether a newly reported issue is already covered by the existing known-issues register
+- Claude Code
+- Codex
+- direct CLI use
 
-Host-specific packages live in:
+## What It Does
 
-- [`claude-skill-known-issues/`](./claude-skill-known-issues)
-- [`codex-skill-known-issues/`](./codex-skill-known-issues)
+- ingests local audit files, folders, repo directories, URLs, GitHub file URLs, GitHub folder URLs, and whole GitHub repo URLs
+- downloads and normalizes remote sources, including PDFs
+- extracts issue candidates from each source
+- deduplicates them into one canonical `known-issues.json`
+- checks whether a new issue matches an existing known issue
 
-The recommended extraction mode is Claude-first: the script downloads and normalizes sources, including PDFs, and Claude structures issue records from that prepared text before final deduplication.
+The canonical output is:
 
-Inputs can be:
+- `known-issues.json`
 
-- individual local report files
-- a whole local directory or repo containing audits
-- direct report URLs
-- GitHub file URLs
-- GitHub folder URLs
-- whole GitHub repo URLs
-
-Directory and GitHub container inputs are expanded recursively into supported audit-like files before preparation.
-
-## What It Produces
-
-- `known-issues.json`: canonical known-issues register used for both builds and duplicate checks
-
-## Repository Layout
-
-```text
-claude-skill-known-issues/
-  SKILL.md
-  scripts/
-    known_issues.py
-codex-skill-known-issues/
-  SKILL.md
-  agents/
-    openai.yaml
-  scripts/
-    known_issues.py
-scripts/
-  install_claude_known_issues.sh
-  install_codex_known_issues.sh
-tests/
-```
-
-The Codex wrapper delegates to the same shared engine currently stored at:
-
-```text
-claude-skill-known-issues/scripts/known_issues.py
-```
-
-## Installation
+## Install
 
 ### Claude Code
-
-For Claude Code, the easiest setup is to install a global slash command that points at this repository's skill files.
-
-Run:
 
 ```bash
 ./scripts/install_claude_known_issues.sh
 ```
 
-This script:
+This installs:
 
-- creates `~/.claude/known-issues-skill` as a symlink to `claude-skill-known-issues/`
-- creates `~/.claude/commands/known-issues.md`
-- makes the skill available in future Claude Code sessions via `/known-issues`
-- installs an interactive `/known-issues` command that opens with a small mode chooser when run without arguments
+- `~/.claude/known-issues-skill`
+- `~/.claude/commands/known-issues.md`
 
-After that, you can use:
-
-```text
-/known-issues build known issues from @report1.md and @report2.md
-```
-
-```text
-/known-issues check whether this issue is already known: unchecked transfer result can desynchronize reward accounting
-```
-
-If you run just:
+After that, start a new Claude session and use:
 
 ```text
 /known-issues
 ```
 
-the command opens with a small interactive selector so the user can choose whether to:
-
-- build a known-issues register
-- check a new issue
-- view usage help
-
-In build mode, source collection is iterative: the command keeps offering to add one local path or one URL at a time, and the user can exit the loop with `Done` when finished.
-
-### Manual Installation
-
-Claude installation conventions vary by environment. If you prefer to install things yourself, these are the equivalent manual steps.
-
-#### Option 1: Symlink for development
-
-Use a symlink if you want edits in this repository to be reflected immediately in the installed skill.
-
-```bash
-ln -s "$(pwd)/claude-skill-known-issues" ~/.claude/known-issues-skill
-```
-
-Create a global slash command:
-
-```bash
-mkdir -p ~/.claude/commands
-```
-
-Create `~/.claude/commands/known-issues.md` with:
-
-```md
----
-description: "Build or check a known-issues register from audit reports"
-argument-hint: [build | check | help]
-allowed-tools: AskUserQuestion, Read, Bash(python3:*)
----
-
-Read ~/.claude/known-issues-skill/SKILL.md and follow its instructions exactly.
-
-If the task requires generating or checking known issues, use:
-`python3 ~/.claude/known-issues-skill/scripts/known_issues.py`
-
-Arguments: $ARGUMENTS
-```
-
-For the full interactive version, copy the repository file `claude-command-known-issues.md` into `~/.claude/commands/known-issues.md`.
-
-#### Option 2: Copy for a standalone install
-
-Use a copy if you want the installed skill to remain independent from this repository.
-
-```bash
-cp -R claude-skill-known-issues ~/.claude/known-issues-skill
-```
-
-Then create the same `~/.claude/commands/known-issues.md` file shown above.
-
 ### Codex
-
-For Codex, install the native Codex skill:
 
 ```bash
 ./scripts/install_codex_known_issues.sh
 ```
 
-This script:
+This installs:
 
-- creates `~/.codex/skills/known-issues-aggregator` as a symlink to `codex-skill-known-issues/`
-- makes the skill available in future Codex sessions
-- installs a Codex skill that starts with an explicit conversational chooser instead of acting immediately
+- `~/.codex/skills/known-issues-aggregator`
 
-Manual Codex install:
+After that, start a new Codex session and invoke:
 
-```bash
-mkdir -p ~/.codex/skills
-ln -s "$(pwd)/codex-skill-known-issues" ~/.codex/skills/known-issues-aggregator
+```text
+$known-issues-aggregator
 ```
 
-## Verify The Install
+## Verify
 
-After Claude installation, confirm the skill directory contains:
-
-- `SKILL.md`
-- `scripts/known_issues.py`
-
-You can also verify both the command and the helper script:
+Claude:
 
 ```bash
 ls -la ~/.claude/known-issues-skill
@@ -180,7 +65,7 @@ sed -n '1,120p' ~/.claude/commands/known-issues.md
 python3 ~/.claude/known-issues-skill/scripts/known_issues.py --help
 ```
 
-After Codex installation, verify:
+Codex:
 
 ```bash
 ls -la ~/.codex/skills/known-issues-aggregator
@@ -188,65 +73,56 @@ sed -n '1,120p' ~/.codex/skills/known-issues-aggregator/SKILL.md
 python3 ~/.codex/skills/known-issues-aggregator/scripts/known_issues.py --help
 ```
 
-## Usage
+## Host Behavior
 
-You can invoke the helper directly from this repository or from the installed skill location.
+Claude opens through `/known-issues` and uses a small interactive chooser.
 
-### Using with Codex
+Codex starts through `$known-issues-aggregator` and should guide you through:
 
-Once installed, invoke the `known-issues-aggregator` Codex skill when you want Codex to:
+- `build`, `check`, or `help`
+- `extend` or `rebuild` when `known-issues.json` already exists
+- iterative source collection until you reply `done`
 
-- build a known-issues register from audit reports
-- extend an existing `known-issues.json`
-- check whether a new issue is already known
+## Direct CLI
 
-The Codex skill is designed to start with a menu-like conversational chooser. It should first ask what you want to do, then ask follow-up questions such as:
+The shared engine lives at:
 
-- build, check, or help
-- extend existing or rebuild from scratch, but only if `known-issues.json` already exists
-- add the next source path or URL, or finish source collection
-
-The Codex skill uses the wrapper at:
-
-```bash
-python3 ~/.codex/skills/known-issues-aggregator/scripts/known_issues.py
+```text
+claude-skill-known-issues/scripts/known_issues.py
 ```
 
-The CLI surface is the same as the shared engine:
+Available commands:
 
 - `prepare-build`
 - `finalize-build`
 - `build`
 - `check`
 
-### Build a canonical known issues file
+## Build Workflow
 
-Recommended staged flow with a single reusable JSON state file:
+There are two ways to build the register.
+
+### Recommended: staged model-assisted flow
+
+Use this when sources are messy, mixed-format, PDF-based, or likely to need model judgment.
 
 ```bash
 python3 claude-skill-known-issues/scripts/known_issues.py prepare-build \
-  --input /path/to/report-1.md \
+  --input /path/to/report.md \
   --input /path/to/audits-folder \
-  --input https://example.com/report-2.pdf \
-  --input https://github.com/org/audits-repo/tree/main/reports \
+  --input https://example.com/report.pdf \
   --merge-known known-issues.json \
   --state-file known-issues.json
 ```
 
-Then read `known-issues.json`, extract issue records from the normalized source text files, write them back into `source_results` in that same file, and finalize:
+Then:
 
-```bash
-python3 claude-skill-known-issues/scripts/known_issues.py finalize-build \
-  --state-file known-issues.json \
-  --output known-issues.json
-```
-
-During the staged flow, the model should also:
-- use `existing_issues_snapshot` when present for extend mode
-- deduplicate the new extracted findings against those existing canonical issues
-- write the final canonical register into `canonical_issues` inside `known-issues.json` before `finalize-build` runs
-
-To extend an existing register instead of rebuilding from scratch:
+1. Read `known-issues.json`.
+2. Read each normalized source text file listed in `sources`.
+3. Write per-source findings into `source_results`.
+4. If `existing_issues_snapshot` is present, treat it as the current register.
+5. Deduplicate both the new findings and the existing issues into `canonical_issues`.
+6. Finalize:
 
 ```bash
 python3 claude-skill-known-issues/scripts/known_issues.py finalize-build \
@@ -255,31 +131,19 @@ python3 claude-skill-known-issues/scripts/known_issues.py finalize-build \
   --output known-issues.json
 ```
 
-Direct fallback flow:
+### Fallback: deterministic direct build
+
+Use this when you just want a quick scripted run without the staged model workflow.
 
 ```bash
 python3 claude-skill-known-issues/scripts/known_issues.py build \
-  --input /path/to/report-1.md \
-  --input https://example.com/report-2 \
+  --input /path/to/report.md \
+  --input https://example.com/report \
   --merge-known known-issues.json \
   --output known-issues.json
 ```
 
-This writes `known-issues.json`.
-
-In the staged flow, `known-issues.json` is reused as the single JSON state file and then becomes the final canonical register. It contains per-source extraction metadata, warnings, and evidence provenance.
-
-Installed Codex wrapper equivalent:
-
-```bash
-python3 ~/.codex/skills/known-issues-aggregator/scripts/known_issues.py build \
-  --input /path/to/report-1.md \
-  --input https://example.com/report-2 \
-  --merge-known known-issues.json \
-  --output known-issues.json
-```
-
-### Check whether a new issue is already known
+## Check Workflow
 
 ```bash
 python3 claude-skill-known-issues/scripts/known_issues.py check \
@@ -295,17 +159,17 @@ python3 claude-skill-known-issues/scripts/known_issues.py check \
   --issue-file /path/to/new-issue.md
 ```
 
-The command returns JSON containing:
+The result is JSON with:
 
 - `verdict`
 - `confidence`
-- `matched_issue` when a close match exists
+- `matched_issue` when relevant
 - `rationale`
 
 ## Notes
 
-- v1 is strongest on text-like Markdown, HTML, and JSON reports.
-- URLs and PDFs are downloaded locally before normalization.
-- local directories and GitHub repo/folder URLs are expanded into supported audit-like files.
-- PDF text extraction is implemented through Python PDF libraries, then Claude is expected to structure issues from the normalized text.
-- Duplicate detection is heuristic and semantic, not exact-title-only.
+- local folders and repo directories are expanded recursively into supported audit-like files
+- GitHub folder and repo URLs are expanded before download
+- PDFs are downloaded locally and normalized before extraction
+- `known-issues.json` is the only canonical artifact
+- extend mode is intended to deduplicate new issues against the existing register, not just within the new sources
