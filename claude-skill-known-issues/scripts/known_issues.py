@@ -1108,6 +1108,19 @@ def parse_new_issue(issue_text: str, label: str = "ad hoc issue") -> IssueCandid
     )
 
 
+def parse_issue_candidates(issue_text: str, label: str) -> list[IssueCandidate]:
+    temp_source = PreparedSource(
+        source_id="INLINE",
+        input_source=label,
+        resolved_source=label,
+        source_type="text",
+        local_artifact_path="",
+        normalized_text_path="",
+    )
+    extracted = extract_candidates_from_text(issue_text, temp_source)
+    return extracted or [parse_new_issue(issue_text, label)]
+
+
 def collapse_ws(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
@@ -1338,10 +1351,35 @@ def run_check(args: argparse.Namespace) -> int:
     else:
         issue_text = args.issue_text
         label = "inline issue"
-    candidate = parse_new_issue(issue_text, label)
-    result = check_issue(issues, candidate)
-    result["candidate"] = dataclasses.asdict(candidate)
-    print(json.dumps(result, indent=2))
+    candidates = parse_issue_candidates(issue_text, label)
+    if len(candidates) == 1:
+        result = check_issue(issues, candidates[0])
+        result["candidate"] = dataclasses.asdict(candidates[0])
+        print(json.dumps(result, indent=2))
+        return 0
+
+    results: list[dict[str, Any]] = []
+    summary = {"known": 0, "possibly-known": 0, "new": 0}
+    for index, candidate in enumerate(candidates, start=1):
+        result = check_issue(issues, candidate)
+        result["candidate"] = dataclasses.asdict(candidate)
+        result["index"] = index
+        results.append(result)
+        verdict = result.get("verdict", "new")
+        if verdict in summary:
+            summary[verdict] += 1
+    print(
+        json.dumps(
+            {
+                "mode": "batch",
+                "input": label,
+                "finding_count": len(candidates),
+                "summary": summary,
+                "results": results,
+            },
+            indent=2,
+        )
+    )
     return 0
 
 

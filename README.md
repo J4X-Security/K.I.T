@@ -159,6 +159,8 @@ python3 claude-skill-known-issues/scripts/known_issues.py check \
   --issue-file /path/to/new-issue.md
 ```
 
+If the issue file contains multiple findings, `check` will parse all of them and return a batch result with one verdict per finding.
+
 The result is JSON with:
 
 - `verdict`
