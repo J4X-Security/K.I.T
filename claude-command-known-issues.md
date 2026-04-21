@@ -95,13 +95,13 @@ When building the register:
 When checking a new issue:
 
 - Look for `known-issues.json` in the current working directory unless the user specified a different path.
-- If a new issue file is provided, run the helper script with `check --issue-file`.
-- If inline issue text is provided, run the helper script with `check --issue-text`.
-- Return the helper result in a concise human-readable form:
-  - verdict
-  - confidence
-  - closest known issue, if any
-  - rationale
+- Prefer staged check mode:
+  - run `prepare-check`
+  - read the staged JSON
+  - for each finding in `findings`, do one Claude judgment against the full `known_issues` list
+  - if delegation is available and there are multiple findings, prefer one worker per finding so these checks can run in parallel
+  - return one verdict per finding with rationale and the closest known issue when relevant
+- If a deterministic fallback is needed, use the helper script with `check --issue-file` or `check --issue-text`.
 
 ## Help Flow
 

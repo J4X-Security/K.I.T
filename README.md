@@ -96,6 +96,7 @@ Available commands:
 - `prepare-build`
 - `finalize-build`
 - `build`
+- `prepare-check`
 - `check`
 
 ## Build Workflow
@@ -144,6 +145,33 @@ python3 claude-skill-known-issues/scripts/known_issues.py build \
 ```
 
 ## Check Workflow
+
+Recommended staged model-assisted check:
+
+```bash
+python3 claude-skill-known-issues/scripts/known_issues.py prepare-check \
+  --known known-issues.json \
+  --issue-file /path/to/new-issue.md
+```
+
+Or:
+
+```bash
+python3 claude-skill-known-issues/scripts/known_issues.py prepare-check \
+  --known known-issues.json \
+  --issue-text "Unchecked transfer result can desynchronize reward accounting."
+```
+
+This writes a staged JSON file containing:
+
+- the full known register as `known_issues`
+- the parsed incoming findings as `findings`
+
+The intended host flow is to evaluate one finding at a time against the full known register.
+
+When multiple findings are present and the host supports delegation, the intended pattern is one subagent per finding so those duplicate checks can run in parallel.
+
+Deterministic fallback:
 
 ```bash
 python3 claude-skill-known-issues/scripts/known_issues.py check \

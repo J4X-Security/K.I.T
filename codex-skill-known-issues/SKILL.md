@@ -69,6 +69,7 @@ The wrapper delegates to the shared engine from this repository and exposes the 
 - `prepare-build`
 - `finalize-build`
 - `build`
+- `prepare-check`
 - `check`
 
 ## Build Workflow
@@ -124,7 +125,34 @@ Before running check mode, confirm whether the user is providing:
 
 `Reply with: text or file.`
 
-Then compare the new issue against the existing register using:
+Prefer the staged check flow:
+
+```bash
+python3 ~/.codex/skills/known-issues-aggregator/scripts/known_issues.py prepare-check \
+  --known known-issues.json \
+  --issue-file path/to/new-issue.md
+```
+
+Or:
+
+```bash
+python3 ~/.codex/skills/known-issues-aggregator/scripts/known_issues.py prepare-check \
+  --known known-issues.json \
+  --issue-text "Unchecked transfer result can desynchronize reward accounting."
+```
+
+Then:
+
+1. Read the staged JSON output.
+2. If there is more than one finding and subagents are available, spawn one subagent per finding so the duplicate checks run in parallel.
+3. Give each subagent:
+   - exactly one finding from `findings`
+   - the full `known_issues` list
+   - a narrow task: classify the finding as `known`, `possibly-known`, or `new`, identify the closest known issue when relevant, and explain the rationale briefly
+4. If there is only one finding, or if subagents are not available, do the judgment in the main thread.
+5. Return one verdict per finding with rationale and the closest known issue when relevant.
+
+Deterministic fallback:
 
 ```bash
 python3 ~/.codex/skills/known-issues-aggregator/scripts/known_issues.py check \
@@ -148,6 +176,8 @@ python3 ~/.codex/skills/known-issues-aggregator/scripts/known_issues.py check \
 - During source collection, ask for the next source value directly. Do not ask the user to classify it as local or URL first.
 - Prefer the staged flow for irregular formats, URLs, PDFs, GitHub repos, and GitHub folders.
 - In the staged flow, the model is responsible for deduping extracted findings and, in extend mode, deduping them against `existing_issues_snapshot` before writing the final canonical issues into `canonical_issues`.
+- In check mode, prefer `prepare-check` and make one model judgment per finding against the full known register.
+- When multiple findings are present and delegation is available, parallelize by spawning one subagent per finding.
 - Treat `known-issues.json` as the only canonical artifact.
 - During staged builds, reuse the same `known-issues.json` file instead of creating separate preview or extraction JSON files.
 - Preserve source traceability, aliases, source locations, and evidence snippets where available.

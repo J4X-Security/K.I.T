@@ -632,6 +632,89 @@ class KnownIssuesCliTests(unittest.TestCase):
             self.assertEqual(payload["summary"]["known"], 1)
             self.assertEqual(payload["summary"]["new"], 1)
 
+    def test_prepare_check_emits_known_issues_and_all_findings(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            report = tmp / "report.md"
+            report.write_text(
+                textwrap.dedent(
+                    """
+                    # Admin can bypass cap checks during emergency mint
+
+                    Severity: Medium
+                    Summary: The emergency mint path skips the normal cap enforcement.
+                    Root Cause: emergencyMint omits the supply cap validation used by mint.
+                    Impact: Total supply can exceed the configured cap.
+                    Affected Component: TokenMinter.emergencyMint
+                    """
+                ).strip(),
+                encoding="utf-8",
+            )
+            known = tmp / "known-issues.json"
+            subprocess.run(
+                [
+                    "python3",
+                    str(SCRIPT),
+                    "build",
+                    "--input",
+                    str(report),
+                    "--output",
+                    str(known),
+                ],
+                cwd=ROOT,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+
+            findings = tmp / "findings.md"
+            findings.write_text(
+                textwrap.dedent(
+                    """
+                    # Admin can bypass cap checks during emergency mint
+
+                    Severity: Medium
+                    Summary: The emergency mint path skips cap validation.
+                    Root Cause: emergencyMint omits the supply cap validation used by mint.
+                    Impact: Total supply can exceed the configured cap.
+                    Affected Component: TokenMinter.emergencyMint
+
+                    # Reward vesting can be permanently blocked
+
+                    Severity: Medium
+                    Summary: Vesting claims can be blocked forever.
+                    Root Cause: The vesting schedule start time may remain unset.
+                    Impact: Users may never be able to claim vested rewards.
+                    Affected Component: Vesting.claim
+                    """
+                ).strip(),
+                encoding="utf-8",
+            )
+            staged = tmp / "known-issues-check.json"
+            result = subprocess.run(
+                [
+                    "python3",
+                    str(SCRIPT),
+                    "prepare-check",
+                    "--known",
+                    str(known),
+                    "--issue-file",
+                    str(findings),
+                    "--output",
+                    str(staged),
+                ],
+                cwd=ROOT,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["finding_count"], 2)
+            self.assertEqual(payload["known_issue_count"], 1)
+            staged_payload = json.loads(staged.read_text(encoding="utf-8"))
+            self.assertEqual(len(staged_payload["known_issues"]), 1)
+            self.assertEqual(len(staged_payload["findings"]), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

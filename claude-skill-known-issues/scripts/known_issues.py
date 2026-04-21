@@ -1121,6 +1121,10 @@ def parse_issue_candidates(issue_text: str, label: str) -> list[IssueCandidate]:
     return extracted or [parse_new_issue(issue_text, label)]
 
 
+def issue_candidate_to_dict(candidate: IssueCandidate) -> dict[str, Any]:
+    return dataclasses.asdict(candidate)
+
+
 def collapse_ws(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
@@ -1383,6 +1387,40 @@ def run_check(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_prepare_check(args: argparse.Namespace) -> int:
+    known_path = Path(args.known)
+    known_issues = load_known_issues(known_path)
+    if args.issue_file:
+        issue_text = Path(args.issue_file).read_text(encoding="utf-8")
+        label = args.issue_file
+    else:
+        issue_text = args.issue_text
+        label = "inline issue"
+    candidates = parse_issue_candidates(issue_text, label)
+    payload = {
+        "status": "prepared",
+        "known_path": str(known_path),
+        "input": label,
+        "finding_count": len(candidates),
+        "known_issues": [dataclasses.asdict(issue) for issue in known_issues],
+        "findings": [issue_candidate_to_dict(candidate) for candidate in candidates],
+    }
+    output_path = Path(args.output)
+    output_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    print(
+        json.dumps(
+            {
+                "status": "ok",
+                "output": str(output_path),
+                "finding_count": len(candidates),
+                "known_issue_count": len(known_issues),
+            },
+            indent=2,
+        )
+    )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -1407,6 +1445,14 @@ def build_parser() -> argparse.ArgumentParser:
     build.add_argument("--extractions-file", help="Claude extraction JSON produced from prepare-build output")
     build.add_argument("--merge-known", help="existing known-issues.json to extend instead of rebuilding from scratch")
     build.set_defaults(func=run_build)
+
+    prepare_check = subparsers.add_parser("prepare-check", help="prepare one or more findings for model-assisted duplicate checking")
+    prepare_check.add_argument("--known", required=True, help="path to known-issues.json")
+    prepare_check.add_argument("--output", default="known-issues-check.json", help="output JSON path for staged duplicate checking")
+    prepare_group = prepare_check.add_mutually_exclusive_group(required=True)
+    prepare_group.add_argument("--issue-file", help="path to a file containing one or more findings")
+    prepare_group.add_argument("--issue-text", help="inline issue text")
+    prepare_check.set_defaults(func=run_prepare_check)
 
     check = subparsers.add_parser("check", help="check whether a new issue is already known")
     check.add_argument("--known", required=True, help="path to known-issues.json")

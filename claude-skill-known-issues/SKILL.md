@@ -92,10 +92,36 @@ Behavior:
 Use one of:
 
 ```bash
+python3 claude-skill-known-issues/scripts/known_issues.py prepare-check \
+  --known known-issues.json \
+  --issue-file path/to/new-issue.md
+```
+
+Or:
+
+```bash
+python3 claude-skill-known-issues/scripts/known_issues.py prepare-check \
+  --known known-issues.json \
+  --issue-text "Unchecked return value in reward distributor can leave accounting inconsistent after external transfer failure."
+```
+
+Recommended staged check flow:
+
+1. Run `prepare-check`.
+2. Read the generated staged JSON.
+3. For each finding in `findings`, do one model judgment against the full `known_issues` list.
+4. If the host supports delegation and there are multiple findings, prefer one delegated worker per finding so the duplicate checks can run in parallel.
+5. Return one verdict per finding with rationale and the closest known issue when relevant.
+
+Deterministic fallback:
+
+```bash
 python3 claude-skill-known-issues/scripts/known_issues.py check \
   --known known-issues.json \
   --issue-file path/to/new-issue.md
 ```
+
+Or:
 
 ```bash
 python3 claude-skill-known-issues/scripts/known_issues.py check \
@@ -107,12 +133,15 @@ Behavior:
 
 - returns `known`, `possibly-known`, or `new`
 - explains the closest match and the reasoning
+- `prepare-check` is preferred when a report may contain multiple findings or when you want one model judgment per finding
 
 ## Operating Rules
 
 - Treat `known-issues.json` as the only canonical artifact.
 - Prefer Claude-assisted extraction for URLs, PDFs, GitHub-hosted reports, and irregular formats.
 - Prefer Claude-assisted dedupe during staged builds: the model should decide which extracted issues collapse into one canonical issue and write that decision into `canonical_issues`.
+- Prefer Claude-assisted duplicate checking through `prepare-check`: the model should review one finding at a time against the full known register.
+- When multiple findings are present and delegation is available, parallelize duplicate checks with one worker per finding.
 - Collapse issues when the underlying root cause, affected surface, and impact are materially the same even if wording differs.
 - Keep issues separate when they only share a component or severity but differ in bug class or exploit path.
 - If extraction quality is weak for a source, record a warning instead of inventing structured findings.
