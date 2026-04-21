@@ -386,11 +386,11 @@ class KnownIssuesCliTests(unittest.TestCase):
                 text=True,
             )
             payload = json.loads(result.stdout)
-            self.assertEqual(payload["finding_count"], 2)
             self.assertEqual(payload["known_issue_count"], 1)
             staged_payload = json.loads(staged.read_text(encoding="utf-8"))
             self.assertEqual(len(staged_payload["known_issues"]), 1)
-            self.assertEqual(len(staged_payload["findings"]), 2)
+            self.assertIn("Admin can bypass cap checks during emergency mint", staged_payload["report_text"])
+            self.assertIn("Reward vesting can be permanently blocked", staged_payload["report_text"])
 
 
 if __name__ == "__main__":

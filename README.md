@@ -149,9 +149,12 @@ python3 claude-skill-known-issues/scripts/known_issues.py prepare-check \
 This writes a staged JSON file containing:
 
 - the full known register as `known_issues`
-- the parsed incoming findings as `findings`
+- the raw incoming report or issue text as `report_text`
 
-The intended host flow is to evaluate one finding at a time against the full known register.
+The intended host flow is:
+
+1. identify findings from `report_text`
+2. evaluate one finding at a time against the full known register
 
 When multiple findings are present and the host supports delegation, the intended pattern is one subagent per finding so those duplicate checks can run in parallel.
 

@@ -429,169 +429,6 @@ def prepare_sources(raw_sources: list[str], workspace_dir: Path) -> tuple[list[P
     return prepared_sources, raw_sources, expanded_sources
 
 
-def split_sections(text: str) -> list[str]:
-    lines = text.splitlines()
-    sections: list[list[str]] = []
-    current: list[str] = []
-    heading_re = re.compile(r"^\s{0,3}(#{1,6}\s+.+|\d+\.\s+.+|(?:finding|issue)\s*[:#-]?\s+.+)$", re.IGNORECASE)
-
-    for line in lines:
-        if heading_re.match(line.strip()):
-            if current:
-                sections.append(current)
-            current = [line]
-        else:
-            current.append(line)
-    if current:
-        sections.append(current)
-    return ["\n".join(section).strip() for section in sections if "\n".join(section).strip()]
-
-
-def extract_candidates_from_text(text: str, source: PreparedSource) -> list[IssueCandidate]:
-    sections = split_sections(text)
-    candidates = [candidate for candidate in (section_to_candidate(section, source) for section in sections) if candidate]
-    if candidates:
-        return candidates
-    return fallback_candidates(text, source)
-
-
-def section_to_candidate(section: str, source: PreparedSource) -> IssueCandidate | None:
-    lines = [line.strip() for line in section.splitlines() if line.strip()]
-    if not lines:
-        return None
-
-    title = normalize_title(lines[0])
-    body = "\n".join(lines[1:]) if len(lines) > 1 else ""
-    summary = extract_labeled(body, ("summary", "description", "issue", "finding")) or first_paragraph(body)
-    root_cause = extract_labeled(body, ("root cause", "cause", "vulnerability", "bug")) or infer_root_cause(body, title)
-    impact = extract_labeled(body, ("impact", "risk", "consequence")) or infer_impact(body)
-    component = extract_labeled(body, ("affected component", "component", "module", "contract", "function")) or infer_component(section)
-    severity = infer_severity(section)
-    if not looks_like_issue(title, summary, root_cause, impact, component, severity):
-        return None
-
-    return IssueCandidate(
-        title=title,
-        summary=summary or title,
-        root_cause=root_cause or summary or title,
-        impact=impact or "Impact not explicitly stated in source report.",
-        affected_component=component or "Unspecified component",
-        severity=severity,
-        source=source.input_source,
-        aliases=[title],
-        source_id=source.source_id,
-        source_location=title,
-        evidence_snippet=(first_paragraph(body) or title)[:300],
-        extraction_confidence="low",
-    )
-
-
-def fallback_candidates(text: str, source: PreparedSource) -> list[IssueCandidate]:
-    candidates: list[IssueCandidate] = []
-    bullet_re = re.compile(r"^\s*[-*]\s*(?:\[(?P<sev>[^\]]+)\]\s*)?(?P<title>[^:]+):\s*(?P<body>.+)$")
-    for line in text.splitlines():
-        match = bullet_re.match(line)
-        if not match:
-            continue
-        severity = normalize_severity(match.group("sev") or "")
-        title = normalize_title(match.group("title"))
-        body = match.group("body").strip()
-        if len(title) < 6 or len(body) < 15:
-            continue
-        candidates.append(
-            IssueCandidate(
-                title=title,
-                summary=body,
-                root_cause=infer_root_cause(body, title),
-                impact=infer_impact(body),
-                affected_component=infer_component(f"{title}\n{body}"),
-                severity=severity,
-                source=source.input_source,
-                aliases=[title],
-                source_id=source.source_id,
-                source_location=title,
-                evidence_snippet=body[:300],
-                extraction_confidence="low",
-            )
-        )
-    return candidates
-
-
-def normalize_title(raw: str) -> str:
-    text = re.sub(r"^\s{0,3}#{1,6}\s*", "", raw).strip()
-    text = re.sub(r"^\d+\.\s*", "", text)
-    text = re.sub(r"^(finding|issue)\s*[:#-]?\s*", "", text, flags=re.IGNORECASE)
-    text = re.sub(r"\s+", " ", text)
-    return text[:160].strip(" -:")
-
-
-def extract_labeled(body: str, labels: tuple[str, ...]) -> str:
-    for label in labels:
-        pattern = re.compile(rf"(?im)^\s*{re.escape(label)}\s*[:\-]\s*(.+)$")
-        match = pattern.search(body)
-        if match:
-            return collapse_ws(match.group(1))
-    return ""
-
-
-def first_paragraph(body: str) -> str:
-    paragraphs = [collapse_ws(part) for part in re.split(r"\n\s*\n", body) if collapse_ws(part)]
-    return paragraphs[0] if paragraphs else ""
-
-
-def infer_root_cause(body: str, title: str) -> str:
-    text = collapse_ws(body)
-    sentences = re.split(r"(?<=[.!?])\s+", text)
-    for sentence in sentences:
-        lowered = sentence.lower()
-        if any(marker in lowered for marker in ("because", "due to", "allows", "fails to", "does not", "missing", "unchecked", "unsaf")):
-            return sentence
-    return title
-
-
-def infer_impact(body: str) -> str:
-    text = collapse_ws(body)
-    sentences = re.split(r"(?<=[.!?])\s+", text)
-    for sentence in sentences:
-        lowered = sentence.lower()
-        if any(marker in lowered for marker in ("can ", "could ", "may ", "result", "lead to", "caus", "loss", "drain", "steal", "deny", "block")):
-            return sentence
-    return "Impact not explicitly stated in source report."
-
-
-def infer_component(text: str) -> str:
-    action_in_component = re.search(r"(?i)\b([a-z][a-z0-9_]*(?:\s+[a-z][a-z0-9_]*){0,2})\s+in\s+([A-Z][A-Za-z0-9_]+)\b", text)
-    if action_in_component:
-        action = camelize(action_in_component.group(1))
-        component = action_in_component.group(2)
-        return f"{component}.{action}"
-    patterns = [
-        r"(?i)\b(contract|module|component|service|function|method)\s+`?([A-Za-z0-9_./:-]+)`?",
-        r"(?i)\b(?:in|within|inside)\s+`?([A-Za-z0-9_./:-]+)`?",
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, text)
-        if match:
-            candidate = match.group(match.lastindex or 1)
-            return candidate.strip("`")
-    return "Unspecified component"
-
-
-def camelize(value: str) -> str:
-    parts = [part for part in re.split(r"[^A-Za-z0-9]+", value) if part]
-    if not parts:
-        return ""
-    return parts[0].lower() + "".join(part[:1].upper() + part[1:].lower() for part in parts[1:])
-
-
-def infer_severity(text: str) -> str:
-    lower = text.lower()
-    for word in ("critical", "high", "medium", "low", "informational", "info"):
-        if re.search(rf"\b{word}\b", lower):
-            return normalize_severity(word)
-    return "unspecified"
-
-
 def normalize_severity(value: str) -> str:
     normalized = collapse_ws(value).lower()
     if normalized == "info":
@@ -599,31 +436,6 @@ def normalize_severity(value: str) -> str:
     if normalized in SEVERITY_WORDS:
         return normalized
     return "unspecified"
-
-
-def looks_like_issue(title: str, summary: str, root_cause: str, impact: str, component: str, severity: str) -> bool:
-    text = " ".join([title, summary, root_cause, impact, component, severity]).lower()
-    indicators = [
-        "attack",
-        "vulnerability",
-        "bug",
-        "overflow",
-        "underflow",
-        "reentr",
-        "dos",
-        "denial",
-        "loss",
-        "steal",
-        "drain",
-        "bypass",
-        "incorrect",
-        "missing",
-        "unchecked",
-        "fails",
-    ]
-    if any(indicator in text for indicator in indicators):
-        return True
-    return len(title) > 8 and (severity != "unspecified" or len(summary) > 30)
 
 
 def canonical_key_for(candidate: IssueCandidate) -> str:
@@ -861,52 +673,6 @@ def merge_source_lists(existing_sources: list[PreparedSource], new_sources: list
     return merged
 
 
-def parse_new_issue(issue_text: str, label: str = "ad hoc issue") -> IssueCandidate:
-    temp_source = PreparedSource(
-        source_id="INLINE",
-        input_source=label,
-        resolved_source=label,
-        source_type="text",
-        local_artifact_path="",
-        normalized_text_path="",
-    )
-    extracted = extract_candidates_from_text(issue_text, temp_source)
-    if extracted:
-        return extracted[0]
-
-    summary = collapse_ws(issue_text)
-    title = summary.split(".")[0][:120].strip() or "New issue"
-    return IssueCandidate(
-        title=title,
-        summary=summary,
-        root_cause=infer_root_cause(summary, title),
-        impact=infer_impact(summary),
-        affected_component=infer_component(summary),
-        severity=infer_severity(summary),
-        source=label,
-        aliases=[title],
-        source_id="INLINE",
-        evidence_snippet=summary[:300],
-    )
-
-
-def parse_issue_candidates(issue_text: str, label: str) -> list[IssueCandidate]:
-    temp_source = PreparedSource(
-        source_id="INLINE",
-        input_source=label,
-        resolved_source=label,
-        source_type="text",
-        local_artifact_path="",
-        normalized_text_path="",
-    )
-    extracted = extract_candidates_from_text(issue_text, temp_source)
-    return extracted or [parse_new_issue(issue_text, label)]
-
-
-def issue_candidate_to_dict(candidate: IssueCandidate) -> dict[str, Any]:
-    return dataclasses.asdict(candidate)
-
-
 def collapse_ws(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
@@ -1095,14 +861,12 @@ def run_prepare_check(args: argparse.Namespace) -> int:
     else:
         issue_text = args.issue_text
         label = "inline issue"
-    candidates = parse_issue_candidates(issue_text, label)
     payload = {
         "status": "prepared",
         "known_path": str(known_path),
         "input": label,
-        "finding_count": len(candidates),
         "known_issues": [dataclasses.asdict(issue) for issue in known_issues],
-        "findings": [issue_candidate_to_dict(candidate) for candidate in candidates],
+        "report_text": issue_text,
     }
     output_path = Path(args.output)
     output_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
@@ -1111,7 +875,6 @@ def run_prepare_check(args: argparse.Namespace) -> int:
             {
                 "status": "ok",
                 "output": str(output_path),
-                "finding_count": len(candidates),
                 "known_issue_count": len(known_issues),
             },
             indent=2,
