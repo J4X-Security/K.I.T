@@ -13,22 +13,44 @@ Do not start running commands immediately.
 
 Always begin by asking the user what they want to do, even if the user invoked the skill directly. The first response should be a small conversational chooser, not execution.
 
-Start by asking them to choose one of:
+Do not repeat that the skill is being used. The host already shows that.
 
-- build a known-issues register
-- check a new issue against an existing register
-- get help on the workflow
+Do not render the opening menu twice.
+
+The first response must contain exactly one question block, then stop and wait for the user's reply.
+
+Use this exact opening format:
+
+```text
+What do you want to do?
+- build: create or extend a known-issues register from audit sources
+- check: compare one new issue against an existing register
+- help: show the workflow and examples
+
+Reply with: build, check, or help.
+```
 
 If they choose build, ask a second question before doing any work:
 
-- extend the existing `known-issues.md`
-- rebuild from scratch
+`Reply with: extend or rebuild.`
 
-If they choose build, collect sources iteratively instead of assuming them all at once. After each source is added, ask what to add next:
+If they choose build, collect sources iteratively instead of assuming them all at once.
 
-- local path
-- URL
-- done
+Do not ask the user to classify a source as local or URL first. Infer that from the string they provide.
+
+After each source is added, ask for the next source in one short line, for example:
+
+`Send the next source path or URL, or reply done.`
+
+Infer source type from the value:
+
+- local file path
+- local folder path
+- local repo directory
+- direct URL
+- GitHub file URL
+- GitHub folder URL
+- whole GitHub repo URL
 
 Do not run the engine until the user has explicitly chosen a mode and, for build mode, explicitly finished source collection.
 
@@ -61,7 +83,8 @@ Guide the user through:
    - a GitHub file URL
    - a GitHub folder URL
    - a whole GitHub repo URL
-4. Prefer the staged flow:
+4. Infer each provided source from its string value rather than asking the user to label it.
+5. Prefer the staged flow:
 
 ```bash
 python3 ~/.codex/skills/known-issues-aggregator/scripts/known_issues.py prepare-build \
@@ -70,10 +93,10 @@ python3 ~/.codex/skills/known-issues-aggregator/scripts/known_issues.py prepare-
   --workspace-dir .known-issues-work
 ```
 
-5. Read `.known-issues-work/prepared-build.json`.
-6. For each prepared source, read the normalized text file path listed there.
-7. Extract structured issue records into a JSON file with one result per source.
-8. Finalize:
+6. Read `.known-issues-work/prepared-build.json`.
+7. For each prepared source, read the normalized text file path listed there.
+8. Extract structured issue records into a JSON file with one result per source.
+9. Finalize:
 
 ```bash
 python3 ~/.codex/skills/known-issues-aggregator/scripts/known_issues.py finalize-build \
@@ -96,8 +119,7 @@ python3 ~/.codex/skills/known-issues-aggregator/scripts/known_issues.py finalize
 
 Before running check mode, confirm whether the user is providing:
 
-- inline issue text
-- a local issue file
+`Reply with: text or file.`
 
 Then compare the new issue against the existing register using:
 
@@ -118,6 +140,9 @@ python3 ~/.codex/skills/known-issues-aggregator/scripts/known_issues.py check \
 ## Operating Rules
 
 - The first step is always an explicit user choice flow. Do not jump directly into build or check execution.
+- Ask each choice question once per step, then wait for the user's reply. Do not repeat the same question in the same turn.
+- Keep all choice prompts compact and single-line. Do not print large bullet menus unless the user asks for help.
+- During source collection, ask for the next source value directly. Do not ask the user to classify it as local or URL first.
 - Prefer the staged flow for irregular formats, URLs, PDFs, GitHub repos, and GitHub folders.
 - Treat `known-issues.md` as the human-facing artifact and `known-issues.json` as the machine-friendly sidecar.
 - Preserve source traceability, aliases, source locations, and evidence snippets where available.
