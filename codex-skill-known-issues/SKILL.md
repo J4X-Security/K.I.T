@@ -144,14 +144,16 @@ Then:
 1. Read the staged JSON output.
 2. Read `llm_contract` and follow it exactly.
 3. Read `report_text` and identify the findings from that raw report text using the `finding_extraction` contract.
-4. If there is more than one finding and subagents are available, spawn one subagent per finding so the duplicate checks run in parallel.
+4. If there is more than one finding, spawn one subagent per finding so the duplicate checks run in parallel.
 5. Give each subagent:
    - exactly one finding you identified from `report_text`
    - the full `known_issues` list
    - the `duplicate_check` contract from `llm_contract`
+   - the finding's 1-based index
    - a narrow task: return a result that matches the required output schema exactly
-6. If there is only one finding, or if subagents are not available, do the judgment in the main thread using the same contract.
-7. Return one verdict per finding using the required output schema from `llm_contract`.
+6. If there is exactly one finding, do the judgment in the main thread using the same contract.
+7. After all subagents finish, merge their outputs into one ordered result list sorted by `finding_index`.
+8. Return one verdict per finding using the required output schema from `llm_contract`.
 
 ## Operating Rules
 
@@ -163,7 +165,7 @@ Then:
 - In the staged flow, the model is responsible for deduping extracted findings and, in extend mode, deduping them against `existing_issues_snapshot` before writing the final canonical issues into `canonical_issues`.
 - In check mode, prefer `prepare-check`, identify findings from `report_text`, and then make one model judgment per finding against the full known register.
 - In check mode, the duplicate decision must follow the staged `llm_contract`, not ad hoc judgment.
-- When multiple findings are present and delegation is available, parallelize by spawning one subagent per finding.
+- When multiple findings are present, spawning one subagent per finding is required.
 - Do not use deterministic fallback for build or check. If staged LLM output is missing, fail instead of guessing.
 - Treat `known-issues.json` as the only canonical artifact.
 - During staged builds, reuse the same `known-issues.json` file instead of creating separate preview or extraction JSON files.

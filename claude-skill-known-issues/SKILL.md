@@ -102,8 +102,10 @@ Recommended staged check flow:
 3. Read `llm_contract` and follow it exactly.
 4. Read `report_text` and identify the findings from that raw report text using the `finding_extraction` contract.
 5. For each finding, do one model judgment against the full `known_issues` list using the `duplicate_check` contract.
-6. If the host supports delegation and there are multiple findings, prefer one delegated worker per finding so the duplicate checks can run in parallel.
-7. Return one verdict per finding using the required output schema from `llm_contract`.
+6. If the host supports delegation and there are multiple findings, spawn one delegated worker per finding so the duplicate checks can run in parallel.
+7. Give each worker one finding, the full `known_issues` list, the `duplicate_check` contract, and the finding's 1-based index.
+8. Merge the worker outputs into one ordered result list sorted by `finding_index`.
+9. Return one verdict per finding using the required output schema from `llm_contract`.
 
 Behavior:
 
@@ -117,7 +119,7 @@ Behavior:
 - Prefer Claude-assisted extraction for URLs, PDFs, GitHub-hosted reports, and irregular formats.
 - Prefer Claude-assisted dedupe during staged builds: the model should decide which extracted issues collapse into one canonical issue and write that decision into `canonical_issues`.
 - Prefer Claude-assisted duplicate checking through `prepare-check`: the model should review one finding at a time against the full known register.
-- When multiple findings are present and delegation is available, parallelize duplicate checks with one worker per finding.
+- When multiple findings are present and delegation is available, spawning one worker per finding is required.
 - Do not use deterministic fallback for build or check. If the staged LLM data is missing, fail instead of guessing.
 - Collapse issues when the underlying root cause, affected surface, and impact are materially the same even if wording differs.
 - Keep issues separate when they only share a component or severity but differ in bug class or exploit path.

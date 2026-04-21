@@ -101,7 +101,8 @@ When checking a new issue:
   - read `llm_contract` and follow it exactly
   - identify findings from `report_text`
   - for each identified finding, do one Claude judgment against the full `known_issues` list using the `duplicate_check` contract
-  - if delegation is available and there are multiple findings, prefer one worker per finding so these checks can run in parallel
+  - if delegation is available and there are multiple findings, spawn one worker per finding and pass each worker the finding, its 1-based index, the full `known_issues` list, and the `duplicate_check` contract
+  - merge worker outputs into one ordered result list sorted by `finding_index`
   - return one verdict per finding using the required output schema
 - If staged LLM output is missing or incomplete, fail instead of guessing.
 

@@ -720,6 +720,15 @@ def duplicate_check_contract() -> dict[str, Any]:
                 "evidence_snippet",
             ],
         },
+        "parallelization": {
+            "task": "After extracting findings, evaluate them independently.",
+            "rules": [
+                "If more than one finding is identified and delegation is available, spawn exactly one worker per finding.",
+                "Each worker receives one finding, the full known_issues list, and the duplicate_check contract.",
+                "Do not batch multiple findings into one worker.",
+                "After all workers finish, merge their outputs into one final ordered result list.",
+            ],
+        },
         "duplicate_check": {
             "task": "For one finding at a time, decide whether it is already covered by the known_issues register.",
             "verdicts": ["known", "possibly-known", "new"],
@@ -740,6 +749,8 @@ def duplicate_check_contract() -> dict[str, Any]:
                 "severity_context",
             ],
             "required_output_fields": [
+                "finding_index",
+                "finding_title",
                 "verdict",
                 "confidence",
                 "matched_issue_id",
@@ -747,6 +758,8 @@ def duplicate_check_contract() -> dict[str, Any]:
                 "rationale",
             ],
             "output_schema": {
+                "finding_index": "1-based integer index of the finding in the extracted finding list",
+                "finding_title": "short title for the finding being evaluated",
                 "verdict": "known | possibly-known | new",
                 "confidence": "high | medium | low",
                 "matched_issue_id": "string or empty string",

@@ -161,7 +161,7 @@ The intended host flow is:
 2. identify findings from `report_text`
 3. evaluate one finding at a time against the full known register
 
-When multiple findings are present and the host supports delegation, the intended pattern is one subagent per finding so those duplicate checks can run in parallel.
+When multiple findings are present and the host supports delegation, the intended pattern is one subagent per finding, then merge the per-finding outputs back into one ordered result list.
 
 ## Notes
 
