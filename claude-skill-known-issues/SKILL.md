@@ -34,20 +34,19 @@ python3 claude-skill-known-issues/scripts/known_issues.py prepare-build \
   --input path/to/report-1.md \
   --input path/to/audits-folder \
   --input https://github.com/org/audit-repo/tree/main/reports \
-  --workspace-dir .known-issues-work
+  --state-file known-issues.json
 ```
 
 Then:
 
-1. Read `.known-issues-work/prepared-build.json`
+1. Read `known-issues.json`
 2. For each prepared source, read the normalized text file path listed there
-3. Use Claude to extract structured issue records into a JSON file with one result per source
+3. Use Claude to fill `source_results` inside that same `known-issues.json`
 4. Finalize:
 
 ```bash
 python3 claude-skill-known-issues/scripts/known_issues.py finalize-build \
-  --prepared .known-issues-work/prepared-build.json \
-  --extractions claude-extractions.json \
+  --state-file known-issues.json \
   --output known-issues.md
 ```
 
@@ -55,8 +54,7 @@ To extend an existing register instead of rebuilding from scratch:
 
 ```bash
 python3 claude-skill-known-issues/scripts/known_issues.py finalize-build \
-  --prepared .known-issues-work/prepared-build.json \
-  --extractions claude-extractions.json \
+  --state-file known-issues.json \
   --merge-known known-issues.md \
   --output known-issues.md
 ```
@@ -79,6 +77,7 @@ Behavior:
 - downloads remote artifacts locally
 - extracts PDF text before issue extraction
 - supports Claude-first extraction through `prepare-build` and `finalize-build`
+- uses a single reusable `known-issues.json` state file during the staged flow
 - can either rebuild from scratch or extend an existing `known-issues.md`
 - writes `known-issues.md`
 - writes `known-issues.json` beside it

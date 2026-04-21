@@ -69,14 +69,14 @@ When building the register:
 - Do not continue to script execution until the user has either provided at least one source or explicitly confirmed they want to stop and revise.
 - If the user exits the loop with zero sources, explain that at least one source is required and offer to restart the source loop.
 - Once the source list is complete, run:
-  - `prepare-build` to download and normalize all sources into a workspace
-  - read the generated `prepared-build.json`
+  - `prepare-build` to download and normalize all sources into a single `known-issues.json` state file
+  - read the generated `known-issues.json`
   - read each normalized source text file listed there
-  - use Claude to extract structured issues for each source into a JSON file
+  - use Claude to fill `source_results` in that same `known-issues.json`
   - `finalize-build` to merge those Claude extraction results into `known-issues.md`
 - If the user chose `Extend existing`, pass `--merge-known known-issues.md` to `finalize-build`.
 - If the user chose `Rebuild`, do not pass `--merge-known`.
-- The Claude extraction JSON should be structured as:
+- The single JSON state file should contain:
   - top-level `source_results`
   - each result contains `source_id`, `status`, `warnings`, and `issues`
   - each issue contains `title`, `summary`, `root_cause`, `impact`, `affected_component`, `severity`, `aliases`, `source_location`, `evidence_snippet`, and `extraction_confidence`

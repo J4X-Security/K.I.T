@@ -393,7 +393,7 @@ def normalize_source_text(payload: bytes, source_type: str, artifact_path: Path)
     return clean_text(content, source_type)
 
 
-def prepare_sources(raw_sources: list[str], workspace_dir: Path) -> tuple[list[PreparedSource], Path]:
+def prepare_sources(raw_sources: list[str], workspace_dir: Path) -> tuple[list[PreparedSource], list[str], list[str]]:
     sources_dir = workspace_dir / "sources"
     sources_dir.mkdir(parents=True, exist_ok=True)
 
@@ -430,15 +430,7 @@ def prepare_sources(raw_sources: list[str], workspace_dir: Path) -> tuple[list[P
             )
         )
 
-    manifest_path = workspace_dir / "prepared-build.json"
-    manifest = {
-        "workspace_dir": str(workspace_dir),
-        "requested_inputs": raw_sources,
-        "expanded_inputs": expanded_sources,
-        "sources": [dataclasses.asdict(source) for source in prepared_sources],
-    }
-    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
-    return prepared_sources, manifest_path
+    return prepared_sources, raw_sources, expanded_sources
 
 
 def split_sections(text: str) -> list[str]:
@@ -1153,8 +1145,17 @@ def create_workspace(workspace_dir: str | None) -> Path:
     return Path(tempfile.mkdtemp(prefix="known-issues-"))
 
 
-def load_prepared_sources(prepared_path: Path) -> tuple[list[PreparedSource], dict[str, PreparedSource]]:
-    payload = json.loads(prepared_path.read_text(encoding="utf-8"))
+def load_state_payload(state_path: Path) -> dict[str, Any]:
+    if not state_path.exists():
+        return {}
+    return json.loads(state_path.read_text(encoding="utf-8"))
+
+
+def write_state_payload(state_path: Path, payload: dict[str, Any]) -> None:
+    state_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def load_prepared_sources_from_payload(payload: dict[str, Any]) -> tuple[list[PreparedSource], dict[str, PreparedSource]]:
     sources = [PreparedSource(**item) for item in payload.get("sources", [])]
     return sources, {source.source_id: source for source in sources}
 
@@ -1214,15 +1215,54 @@ def apply_claude_extractions(prepared_sources: list[PreparedSource], extractions
     return candidates
 
 
+def apply_claude_extractions_from_payload(prepared_sources: list[PreparedSource], payload: dict[str, Any]) -> list[IssueCandidate]:
+    source_lookup = {source.source_id: source for source in prepared_sources}
+    results = payload.get("source_results", payload if isinstance(payload, list) else [])
+    candidates: list[IssueCandidate] = []
+    seen_sources: set[str] = set()
+    for result in results:
+        source_id = result.get("source_id", "")
+        if source_id not in source_lookup:
+            continue
+        source = source_lookup[source_id]
+        seen_sources.add(source_id)
+        source.extraction_status = result.get("status", "ok")
+        extra_warnings = result.get("warnings", [])
+        if isinstance(extra_warnings, list):
+            source.warnings = dedupe_list(source.warnings + [str(item) for item in extra_warnings])
+        for raw_issue in result.get("issues", []):
+            candidates.append(normalize_claude_issue(raw_issue, source))
+
+    for source in prepared_sources:
+        if source.source_id not in seen_sources:
+            source.extraction_status = "failed"
+            source.warnings = dedupe_list(source.warnings + ["No extraction result was provided for this source."])
+    return candidates
+
+
 def run_prepare_build(args: argparse.Namespace) -> int:
     workspace_dir = create_workspace(args.workspace_dir)
-    prepared_sources, manifest_path = prepare_sources(args.input, workspace_dir)
+    prepared_sources, requested_inputs, expanded_inputs = prepare_sources(args.input, workspace_dir)
+    state_path = Path(args.state_file)
+    existing_payload = load_state_payload(state_path)
+    payload = {
+        "status": "prepared",
+        "workspace_dir": str(workspace_dir),
+        "requested_inputs": requested_inputs,
+        "expanded_inputs": expanded_inputs,
+        "sources": [dataclasses.asdict(source) for source in prepared_sources],
+        "source_results": [],
+    }
+    if existing_payload.get("issues"):
+        payload["existing_issues_snapshot"] = existing_payload.get("issues", [])
+        payload["existing_sources_snapshot"] = existing_payload.get("sources", [])
+    write_state_payload(state_path, payload)
     print(
         json.dumps(
             {
                 "status": "ok",
                 "workspace_dir": str(workspace_dir),
-                "prepared_manifest": str(manifest_path),
+                "state_file": str(state_path),
                 "sources": [dataclasses.asdict(source) for source in prepared_sources],
             },
             indent=2,
@@ -1232,11 +1272,18 @@ def run_prepare_build(args: argparse.Namespace) -> int:
 
 
 def run_finalize_build(args: argparse.Namespace) -> int:
-    prepared_sources, _lookup = load_prepared_sources(Path(args.prepared))
-    candidates = apply_claude_extractions(prepared_sources, Path(args.extractions))
+    state_path = Path(args.state_file)
+    state_payload = load_state_payload(state_path)
+    prepared_sources, _lookup = load_prepared_sources_from_payload(state_payload)
+    candidates = apply_claude_extractions_from_payload(prepared_sources, state_payload)
     existing_sources: list[PreparedSource] = []
     if args.merge_known:
-        existing_issues, existing_sources = load_known_payload(Path(args.merge_known))
+        merge_known_path = Path(args.merge_known)
+        if state_payload.get("existing_issues_snapshot") and state_path.resolve() == merge_known_path.with_suffix(".json").resolve():
+            existing_issues = [canonical_issue_from_dict(issue) for issue in state_payload.get("existing_issues_snapshot", [])]
+            existing_sources = [PreparedSource(**source) for source in state_payload.get("existing_sources_snapshot", [])]
+        else:
+            existing_issues, existing_sources = load_known_payload(merge_known_path)
         candidates = [canonical_issue_to_candidate(issue) for issue in existing_issues] + candidates
     issues = aggregate_candidates(candidates)
     all_sources = merge_source_lists(existing_sources, prepared_sources)
@@ -1261,7 +1308,7 @@ def run_finalize_build(args: argparse.Namespace) -> int:
 
 def run_build(args: argparse.Namespace) -> int:
     workspace_dir = create_workspace(args.workspace_dir)
-    prepared_sources, manifest_path = prepare_sources(args.input, workspace_dir)
+    prepared_sources, _requested_inputs, _expanded_inputs = prepare_sources(args.input, workspace_dir)
     if args.extractions_file:
         candidates = apply_claude_extractions(prepared_sources, Path(args.extractions_file))
     else:
@@ -1290,8 +1337,6 @@ def run_build(args: argparse.Namespace) -> int:
         json.dumps(
             {
                 "status": "ok",
-                "workspace_dir": str(workspace_dir),
-                "prepared_manifest": str(manifest_path),
                 "sources": [source.input_source for source in prepared_sources],
                 "candidate_count": len(candidates),
                 "canonical_issue_count": len(issues),
@@ -1326,12 +1371,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     prepare_build = subparsers.add_parser("prepare-build", help="download and normalize sources for Claude-assisted extraction")
     prepare_build.add_argument("--input", action="append", required=True, help="local path or URL to an audit report")
+    prepare_build.add_argument("--state-file", default="known-issues.json", help="single JSON state file used throughout the staged workflow")
     prepare_build.add_argument("--workspace-dir", help="directory where normalized sources should be written")
     prepare_build.set_defaults(func=run_prepare_build)
 
     finalize_build = subparsers.add_parser("finalize-build", help="merge Claude extraction results and write known-issues outputs")
-    finalize_build.add_argument("--prepared", required=True, help="path to prepared-build.json")
-    finalize_build.add_argument("--extractions", required=True, help="path to Claude extraction JSON")
+    finalize_build.add_argument("--state-file", default="known-issues.json", help="single JSON state file created by prepare-build and updated with source_results")
     finalize_build.add_argument("--output", default="known-issues.md", help="output markdown path")
     finalize_build.add_argument("--merge-known", help="existing known-issues.md to extend instead of rebuilding from scratch")
     finalize_build.set_defaults(func=run_finalize_build)

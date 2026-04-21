@@ -146,6 +146,7 @@ class KnownIssuesCliTests(unittest.TestCase):
                 encoding="utf-8",
             )
             workspace = tmp / "workspace"
+            state_file = tmp / "known-issues.json"
             prepare_result = subprocess.run(
                 [
                     "python3",
@@ -153,6 +154,8 @@ class KnownIssuesCliTests(unittest.TestCase):
                     "prepare-build",
                     "--input",
                     str(new_report),
+                    "--state-file",
+                    str(state_file),
                     "--workspace-dir",
                     str(workspace),
                 ],
@@ -161,47 +164,37 @@ class KnownIssuesCliTests(unittest.TestCase):
                 capture_output=True,
                 text=True,
             )
-            prepared_manifest = Path(json.loads(prepare_result.stdout)["prepared_manifest"])
-            extractions = tmp / "claude-extractions.json"
-            extractions.write_text(
-                json.dumps(
-                    {
-                        "source_results": [
-                            {
-                                "source_id": "SRC-001",
-                                "status": "ok",
-                                "warnings": [],
-                                "issues": [
-                                    {
-                                        "title": "Unchecked transfer result desynchronizes reward accounting",
-                                        "summary": "Claim flow ignores failed token transfers.",
-                                        "root_cause": "claimRewards updates accounting before checking transfer success.",
-                                        "impact": "Users can be marked as paid without receiving rewards.",
-                                        "affected_component": "RewardDistributor.claimRewards",
-                                        "severity": "high",
-                                        "aliases": [],
-                                        "source_location": "Reward distributor findings",
-                                        "evidence_snippet": "Claim flow ignores failed token transfers.",
-                                        "extraction_confidence": "high",
-                                    }
-                                ],
-                            }
-                        ]
-                    },
-                    indent=2,
-                ),
-                encoding="utf-8",
-            )
+            state_payload = json.loads(state_file.read_text(encoding="utf-8"))
+            state_payload["source_results"] = [
+                {
+                    "source_id": "SRC-001",
+                    "status": "ok",
+                    "warnings": [],
+                    "issues": [
+                        {
+                            "title": "Unchecked transfer result desynchronizes reward accounting",
+                            "summary": "Claim flow ignores failed token transfers.",
+                            "root_cause": "claimRewards updates accounting before checking transfer success.",
+                            "impact": "Users can be marked as paid without receiving rewards.",
+                            "affected_component": "RewardDistributor.claimRewards",
+                            "severity": "high",
+                            "aliases": [],
+                            "source_location": "Reward distributor findings",
+                            "evidence_snippet": "Claim flow ignores failed token transfers.",
+                            "extraction_confidence": "high",
+                        }
+                    ],
+                }
+            ]
+            state_file.write_text(json.dumps(state_payload, indent=2), encoding="utf-8")
 
             finalize_result = subprocess.run(
                 [
                     "python3",
                     str(SCRIPT),
                     "finalize-build",
-                    "--prepared",
-                    str(prepared_manifest),
-                    "--extractions",
-                    str(extractions),
+                    "--state-file",
+                    str(state_file),
                     "--merge-known",
                     str(existing_output),
                     "--output",
@@ -252,6 +245,7 @@ class KnownIssuesCliTests(unittest.TestCase):
                 encoding="utf-8",
             )
             workspace = tmp / "workspace"
+            state_file = tmp / "known-issues.json"
             prepare_result = subprocess.run(
                 [
                     "python3",
@@ -261,6 +255,8 @@ class KnownIssuesCliTests(unittest.TestCase):
                     str(report_a),
                     "--input",
                     str(report_b),
+                    "--state-file",
+                    str(state_file),
                     "--workspace-dir",
                     str(workspace),
                 ],
@@ -270,59 +266,52 @@ class KnownIssuesCliTests(unittest.TestCase):
                 text=True,
             )
             prepare_payload = json.loads(prepare_result.stdout)
-            prepared_manifest = Path(prepare_payload["prepared_manifest"])
-            self.assertTrue(prepared_manifest.exists())
+            self.assertEqual(Path(prepare_payload["state_file"]), state_file)
+            self.assertTrue(state_file.exists())
             self.assertEqual(len(prepare_payload["sources"]), 2)
 
-            extractions = tmp / "claude-extractions.json"
-            extractions.write_text(
-                json.dumps(
-                    {
-                        "source_results": [
-                            {
-                                "source_id": "SRC-001",
-                                "status": "ok",
-                                "warnings": [],
-                                "issues": [
-                                    {
-                                        "title": "Unchecked transfer result desynchronizes reward accounting",
-                                        "summary": "Claim flow ignores failed token transfers.",
-                                        "root_cause": "claimRewards updates accounting before checking transfer success.",
-                                        "impact": "Users can be marked as paid without receiving rewards.",
-                                        "affected_component": "RewardDistributor.claimRewards",
-                                        "severity": "high",
-                                        "aliases": ["Reward distributor transfer check is missing"],
-                                        "source_location": "Reward distributor findings",
-                                        "evidence_snippet": "Claim flow ignores failed token transfers.",
-                                        "extraction_confidence": "high",
-                                    }
-                                ],
-                            },
-                            {
-                                "source_id": "SRC-002",
-                                "status": "partial",
-                                "warnings": ["Formatting was irregular but one issue was recovered."],
-                                "issues": [
-                                    {
-                                        "title": "Admin can bypass cap checks during emergency mint",
-                                        "summary": "Emergency mint path skips cap validation.",
-                                        "root_cause": "emergencyMint omits the supply cap validation used by mint.",
-                                        "impact": "Total supply can exceed the configured cap.",
-                                        "affected_component": "TokenMinter.emergencyMint",
-                                        "severity": "medium",
-                                        "aliases": [],
-                                        "source_location": "Emergency mint",
-                                        "evidence_snippet": "Emergency mint path skips cap validation.",
-                                        "extraction_confidence": "medium",
-                                    }
-                                ],
-                            },
-                        ]
-                    },
-                    indent=2,
-                ),
-                encoding="utf-8",
-            )
+            state_payload = json.loads(state_file.read_text(encoding="utf-8"))
+            state_payload["source_results"] = [
+                {
+                    "source_id": "SRC-001",
+                    "status": "ok",
+                    "warnings": [],
+                    "issues": [
+                        {
+                            "title": "Unchecked transfer result desynchronizes reward accounting",
+                            "summary": "Claim flow ignores failed token transfers.",
+                            "root_cause": "claimRewards updates accounting before checking transfer success.",
+                            "impact": "Users can be marked as paid without receiving rewards.",
+                            "affected_component": "RewardDistributor.claimRewards",
+                            "severity": "high",
+                            "aliases": ["Reward distributor transfer check is missing"],
+                            "source_location": "Reward distributor findings",
+                            "evidence_snippet": "Claim flow ignores failed token transfers.",
+                            "extraction_confidence": "high",
+                        }
+                    ],
+                },
+                {
+                    "source_id": "SRC-002",
+                    "status": "partial",
+                    "warnings": ["Formatting was irregular but one issue was recovered."],
+                    "issues": [
+                        {
+                            "title": "Admin can bypass cap checks during emergency mint",
+                            "summary": "Emergency mint path skips cap validation.",
+                            "root_cause": "emergencyMint omits the supply cap validation used by mint.",
+                            "impact": "Total supply can exceed the configured cap.",
+                            "affected_component": "TokenMinter.emergencyMint",
+                            "severity": "medium",
+                            "aliases": [],
+                            "source_location": "Emergency mint",
+                            "evidence_snippet": "Emergency mint path skips cap validation.",
+                            "extraction_confidence": "medium",
+                        }
+                    ],
+                },
+            ]
+            state_file.write_text(json.dumps(state_payload, indent=2), encoding="utf-8")
 
             output = tmp / "known-issues.md"
             finalize_result = subprocess.run(
@@ -330,10 +319,8 @@ class KnownIssuesCliTests(unittest.TestCase):
                     "python3",
                     str(SCRIPT),
                     "finalize-build",
-                    "--prepared",
-                    str(prepared_manifest),
-                    "--extractions",
-                    str(extractions),
+                    "--state-file",
+                    str(state_file),
                     "--output",
                     str(output),
                 ],

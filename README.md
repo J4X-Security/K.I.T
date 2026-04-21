@@ -205,7 +205,7 @@ The Codex skill is designed to start with a menu-like conversational chooser. It
 
 - build, check, or help
 - extend existing or rebuild from scratch
-- add a local path, add a URL, or finish source collection
+- add the next source path or URL, or finish source collection
 
 The Codex skill uses the wrapper at:
 
@@ -222,7 +222,7 @@ The CLI surface is the same as the shared engine:
 
 ### Build a canonical known issues file
 
-Recommended Claude-first flow:
+Recommended staged flow with a single reusable JSON state file:
 
 ```bash
 python3 claude-skill-known-issues/scripts/known_issues.py prepare-build \
@@ -230,15 +230,14 @@ python3 claude-skill-known-issues/scripts/known_issues.py prepare-build \
   --input /path/to/audits-folder \
   --input https://example.com/report-2.pdf \
   --input https://github.com/org/audits-repo/tree/main/reports \
-  --workspace-dir .known-issues-work
+  --state-file known-issues.json
 ```
 
-Then read `.known-issues-work/prepared-build.json`, extract issue records with Claude from the normalized source text files, write them to a JSON file, and finalize:
+Then read `known-issues.json`, extract issue records from the normalized source text files, write them back into `source_results` in that same file, and finalize:
 
 ```bash
 python3 claude-skill-known-issues/scripts/known_issues.py finalize-build \
-  --prepared .known-issues-work/prepared-build.json \
-  --extractions claude-extractions.json \
+  --state-file known-issues.json \
   --output known-issues.md
 ```
 
@@ -246,8 +245,7 @@ To extend an existing register instead of rebuilding from scratch:
 
 ```bash
 python3 claude-skill-known-issues/scripts/known_issues.py finalize-build \
-  --prepared .known-issues-work/prepared-build.json \
-  --extractions claude-extractions.json \
+  --state-file known-issues.json \
   --merge-known known-issues.md \
   --output known-issues.md
 ```
@@ -267,7 +265,7 @@ This writes:
 - `known-issues.md`
 - `known-issues.json`
 
-In Claude-first mode, `known-issues.json` also contains per-source extraction metadata, warnings, and evidence provenance.
+In the staged flow, `known-issues.json` is reused as the single JSON state file and then becomes the final sidecar. It contains per-source extraction metadata, warnings, and evidence provenance.
 
 Installed Codex wrapper equivalent:
 

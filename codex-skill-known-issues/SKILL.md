@@ -90,18 +90,17 @@ Guide the user through:
 python3 ~/.codex/skills/known-issues-aggregator/scripts/known_issues.py prepare-build \
   --input path/to/report-or-folder \
   --input https://github.com/org/audit-repo/tree/main/reports \
-  --workspace-dir .known-issues-work
+  --state-file known-issues.json
 ```
 
-6. Read `.known-issues-work/prepared-build.json`.
+6. Read `known-issues.json`.
 7. For each prepared source, read the normalized text file path listed there.
-8. Extract structured issue records into a JSON file with one result per source.
+8. Fill `source_results` inside that same `known-issues.json`.
 9. Finalize:
 
 ```bash
 python3 ~/.codex/skills/known-issues-aggregator/scripts/known_issues.py finalize-build \
-  --prepared .known-issues-work/prepared-build.json \
-  --extractions codex-extractions.json \
+  --state-file known-issues.json \
   --output known-issues.md
 ```
 
@@ -109,8 +108,7 @@ To extend an existing register:
 
 ```bash
 python3 ~/.codex/skills/known-issues-aggregator/scripts/known_issues.py finalize-build \
-  --prepared .known-issues-work/prepared-build.json \
-  --extractions codex-extractions.json \
+  --state-file known-issues.json \
   --merge-known known-issues.md \
   --output known-issues.md
 ```
@@ -145,6 +143,7 @@ python3 ~/.codex/skills/known-issues-aggregator/scripts/known_issues.py check \
 - During source collection, ask for the next source value directly. Do not ask the user to classify it as local or URL first.
 - Prefer the staged flow for irregular formats, URLs, PDFs, GitHub repos, and GitHub folders.
 - Treat `known-issues.md` as the human-facing artifact and `known-issues.json` as the machine-friendly sidecar.
+- During staged builds, reuse the same `known-issues.json` file instead of creating separate preview or extraction JSON files.
 - Preserve source traceability, aliases, source locations, and evidence snippets where available.
 - Continue builds when a source is weak or partial, but surface warnings clearly.
 - Use semantic duplicate matching rather than exact-title matching only.
