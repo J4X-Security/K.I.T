@@ -150,11 +150,16 @@ This writes a staged JSON file containing:
 
 - the full known register as `known_issues`
 - the raw incoming report or issue text as `report_text`
+- an explicit `llm_contract` with:
+  - finding extraction rules
+  - duplicate decision rules
+  - required output schema
 
 The intended host flow is:
 
-1. identify findings from `report_text`
-2. evaluate one finding at a time against the full known register
+1. read and follow `llm_contract`
+2. identify findings from `report_text`
+3. evaluate one finding at a time against the full known register
 
 When multiple findings are present and the host supports delegation, the intended pattern is one subagent per finding so those duplicate checks can run in parallel.
 

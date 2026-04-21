@@ -98,10 +98,11 @@ When checking a new issue:
 - Prefer staged check mode:
   - run `prepare-check`
   - read the staged JSON
+  - read `llm_contract` and follow it exactly
   - identify findings from `report_text`
-  - for each identified finding, do one Claude judgment against the full `known_issues` list
+  - for each identified finding, do one Claude judgment against the full `known_issues` list using the `duplicate_check` contract
   - if delegation is available and there are multiple findings, prefer one worker per finding so these checks can run in parallel
-  - return one verdict per finding with rationale and the closest known issue when relevant
+  - return one verdict per finding using the required output schema
 - If staged LLM output is missing or incomplete, fail instead of guessing.
 
 ## Help Flow

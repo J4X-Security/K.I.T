@@ -700,6 +700,63 @@ def load_prepared_sources_from_payload(payload: dict[str, Any]) -> tuple[list[Pr
     return sources, {source.source_id: source for source in sources}
 
 
+def duplicate_check_contract() -> dict[str, Any]:
+    return {
+        "finding_extraction": {
+            "task": "Read report_text and extract each distinct security issue as a separate finding.",
+            "rules": [
+                "Do not merge multiple findings into one.",
+                "Do not invent findings that are not supported by report_text.",
+                "Keep wording close to the source when summarizing.",
+                "If the input is already a single issue, return exactly one finding.",
+            ],
+            "required_fields": [
+                "title",
+                "summary",
+                "root_cause",
+                "impact",
+                "affected_component",
+                "severity",
+                "evidence_snippet",
+            ],
+        },
+        "duplicate_check": {
+            "task": "For one finding at a time, decide whether it is already covered by the known_issues register.",
+            "verdicts": ["known", "possibly-known", "new"],
+            "decision_rules": [
+                "Return known only when the underlying root cause, affected surface, and impact are materially the same as an existing known issue.",
+                "Return possibly-known when there is a plausible match but the evidence is not strong enough for known.",
+                "Return new when the finding differs in bug class, exploit path, preconditions, or impact in a way that makes it a separate issue.",
+                "Do not match on component name alone.",
+                "Do not match on severity alone.",
+                "Wording differences do not matter if the underlying issue is the same.",
+                "Explain why the closest match is or is not the same issue.",
+            ],
+            "comparison_dimensions": [
+                "root_cause",
+                "affected_component",
+                "exploit_path_or_preconditions",
+                "impact",
+                "severity_context",
+            ],
+            "required_output_fields": [
+                "verdict",
+                "confidence",
+                "matched_issue_id",
+                "matched_issue_title",
+                "rationale",
+            ],
+            "output_schema": {
+                "verdict": "known | possibly-known | new",
+                "confidence": "high | medium | low",
+                "matched_issue_id": "string or empty string",
+                "matched_issue_title": "string or empty string",
+                "rationale": "short explanation grounded in the comparison dimensions",
+            },
+        },
+    }
+
+
 def normalize_claude_issue(raw_issue: dict[str, Any], source: PreparedSource) -> IssueCandidate:
     title = collapse_ws(str(raw_issue.get("title", ""))) or "Untitled issue"
     summary = collapse_ws(str(raw_issue.get("summary", ""))) or title
@@ -867,6 +924,7 @@ def run_prepare_check(args: argparse.Namespace) -> int:
         "input": label,
         "known_issues": [dataclasses.asdict(issue) for issue in known_issues],
         "report_text": issue_text,
+        "llm_contract": duplicate_check_contract(),
     }
     output_path = Path(args.output)
     output_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")

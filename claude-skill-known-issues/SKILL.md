@@ -99,15 +99,17 @@ Recommended staged check flow:
 
 1. Run `prepare-check`.
 2. Read the generated staged JSON.
-3. Read `report_text` and identify the findings from that raw report text.
-4. For each finding, do one model judgment against the full `known_issues` list.
-5. If the host supports delegation and there are multiple findings, prefer one delegated worker per finding so the duplicate checks can run in parallel.
-6. Return one verdict per finding with rationale and the closest known issue when relevant.
+3. Read `llm_contract` and follow it exactly.
+4. Read `report_text` and identify the findings from that raw report text using the `finding_extraction` contract.
+5. For each finding, do one model judgment against the full `known_issues` list using the `duplicate_check` contract.
+6. If the host supports delegation and there are multiple findings, prefer one delegated worker per finding so the duplicate checks can run in parallel.
+7. Return one verdict per finding using the required output schema from `llm_contract`.
 
 Behavior:
 
 - `prepare-check` is required when checking one or more findings against the known register
 - finding extraction during check mode is LLM-driven from `report_text`, not script-driven
+- duplicate-check prompting is defined in `llm_contract` inside the staged JSON and should be followed exactly
 
 ## Operating Rules
 
