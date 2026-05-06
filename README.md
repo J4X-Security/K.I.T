@@ -1,4 +1,4 @@
-# Known Issues Aggregator
+# KIT — Known Issue Triage
 
 Build and maintain a single `known-issues.json` register from audit reports, then check whether a newly reported issue is already known.
 
