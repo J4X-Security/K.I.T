@@ -22,13 +22,13 @@ The first response must contain exactly one question block, then stop and wait f
 Use this exact opening format:
 
 ```text
-    __ __ __________            __ __ _   ______ _       ___   __   ______________ __  ________   __________  _______   ________________ 
-   / //_//  _/_  __/           / //_// | / / __ \ |     / / | / /  /  _/ ___/ ___// / / / ____/  /_  __/ __ \/  _/   | / ____/ ____/ __ \
-  / ,<   / /  / /    ______   / ,<  /  |/ / / / / | /| / /  |/ /   / / \__ \\__ \/ / / / __/      / / / /_/ // // /| |/ / __/ __/ / /_/ /
- / /| |_/ /  / /    /_____/  / /| |/ /|  / /_/ /| |/ |/ / /|  /  _/ / ___/ /__/ / /_/ / /___     / / / _, _// // ___ / /_/ / /___/ _, _/ 
-/_/ |_/___/ /_/             /_/ |_/_/ |_/\____/ |__/|__/_/ |_/  /___//____/____/\____/_____/    /_/ /_/ |_/___/_/  |_\____/_____/_/ |_|  
+K K  III  TTTTT
+K K   I     T
+KK    I     T
+K K   I     T
+K K  III    T
 
-KIT / Known Issue Triager
+Known Issue Triager
 
 What do you want to do?
 - build: create or extend a known-issues.json register from audit sources

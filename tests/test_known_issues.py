@@ -26,9 +26,9 @@ class KnownIssuesCliTests(unittest.TestCase):
         metadata = CODEX_METADATA.read_text(encoding="utf-8")
         claude_command = CLAUDE_COMMAND.read_text(encoding="utf-8")
 
-        self.assertTrue(readme.startswith("```\n    __ __ __________"))
-        self.assertIn("    __ __ __________", codex_skill)
-        self.assertIn("    __ __ __________", claude_command)
+        self.assertTrue(readme.startswith("```text\nK K  III  TTTTT"))
+        self.assertIn("K K  III  TTTTT", codex_skill)
+        self.assertIn("K K  III  TTTTT", claude_command)
         self.assertIn("KIT / Known Issue Triager", metadata)
         self.assertIn("known-issues.json", metadata)
         self.assertNotIn("known-issues.md", metadata)
