@@ -164,7 +164,7 @@ def fetch_json(url: str) -> Any:
     request = urllib.request.Request(
         url,
         headers={
-            "User-Agent": "known-issues-aggregator/2.0",
+            "User-Agent": "kit-known-issue-triager/2.0",
             "Accept": "application/json",
         },
     )
@@ -235,7 +235,7 @@ def fetch_remote_bytes(source: str) -> tuple[bytes, str, str]:
     request = urllib.request.Request(
         normalized,
         headers={
-            "User-Agent": "known-issues-aggregator/2.0",
+            "User-Agent": "kit-known-issue-triager/2.0",
             "Accept": "text/plain,text/html,application/json,text/markdown,application/pdf,*/*",
         },
     )

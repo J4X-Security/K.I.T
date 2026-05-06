@@ -3,9 +3,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-SOURCE_SKILL_DIR="${REPO_ROOT}/codex-skill-known-issues"
+SOURCE_SKILL_DIR="${REPO_ROOT}/codex-skill-kit"
 CODEX_SKILLS_DIR="${HOME}/.codex/skills"
-INSTALLED_SKILL_PATH="${CODEX_SKILLS_DIR}/known-issues-aggregator"
+INSTALLED_SKILL_PATH="${CODEX_SKILLS_DIR}/kit"
+OLD_INSTALLED_SKILL_PATH="${CODEX_SKILLS_DIR}/known-issues-aggregator"
 
 if [[ ! -d "${SOURCE_SKILL_DIR}" ]]; then
   echo "error: Codex skill source directory not found: ${SOURCE_SKILL_DIR}" >&2
@@ -15,8 +16,13 @@ fi
 mkdir -p "${CODEX_SKILLS_DIR}"
 ln -sfn "${SOURCE_SKILL_DIR}" "${INSTALLED_SKILL_PATH}"
 
+if [[ -L "${OLD_INSTALLED_SKILL_PATH}" ]]; then
+  rm "${OLD_INSTALLED_SKILL_PATH}"
+  echo "Removed old Codex skill path: ${OLD_INSTALLED_SKILL_PATH}"
+fi
+
 echo "Installed KIT / Known Issue Triager for Codex"
-echo "Skill: known-issues-aggregator"
+echo "Skill: kit"
 echo "Skill path: ${INSTALLED_SKILL_PATH}"
 echo
 echo "Verify with:"

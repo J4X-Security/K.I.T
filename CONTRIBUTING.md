@@ -38,7 +38,7 @@ copy unless the exact copy is part of the public contract.
 ## Release Checklist
 
 - Run `python3 -m unittest discover -s tests -q`.
-- Check `python3 claude-skill-known-issues/scripts/known_issues.py --help`.
-- Check `python3 codex-skill-known-issues/scripts/known_issues.py --help`.
+- Check `python3 claude-skill-kit/scripts/known_issues.py --help`.
+- Check `python3 codex-skill-kit/scripts/known_issues.py --help`.
 - Verify README install and uninstall commands match the scripts.
 - Confirm public-facing docs use KIT / Known Issue Triager naming.

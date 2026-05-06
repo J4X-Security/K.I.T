@@ -9,24 +9,42 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "claude-skill-known-issues" / "scripts" / "known_issues.py"
-CODEX_WRAPPER = ROOT / "codex-skill-known-issues" / "scripts" / "known_issues.py"
+SCRIPT = ROOT / "claude-skill-kit" / "scripts" / "known_issues.py"
+CODEX_WRAPPER = ROOT / "codex-skill-kit" / "scripts" / "known_issues.py"
 README = ROOT / "README.md"
-CODEX_SKILL = ROOT / "codex-skill-known-issues" / "SKILL.md"
-CODEX_METADATA = ROOT / "codex-skill-known-issues" / "agents" / "openai.yaml"
-CLAUDE_COMMAND = ROOT / "claude-command-known-issues.md"
-CLAUDE_INSTALLER = ROOT / "scripts" / "install_claude_known_issues.sh"
-CODEX_INSTALLER = ROOT / "scripts" / "install_codex_known_issues.sh"
+CODEX_SKILL = ROOT / "codex-skill-kit" / "SKILL.md"
+CODEX_METADATA = ROOT / "codex-skill-kit" / "agents" / "openai.yaml"
+CLAUDE_COMMAND = ROOT / "claude-command-kit.md"
+CLAUDE_INSTALLER = ROOT / "scripts" / "install_claude_kit.sh"
+CODEX_INSTALLER = ROOT / "scripts" / "install_codex_kit.sh"
+AGENT_INSTALL = ROOT / "AGENT_INSTALL.md"
 
 
 class KnownIssuesCliTests(unittest.TestCase):
     def test_public_metadata_uses_kit_brand_and_json_artifact(self) -> None:
         readme = README.read_text(encoding="utf-8")
+        agent_install = AGENT_INSTALL.read_text(encoding="utf-8")
         codex_skill = CODEX_SKILL.read_text(encoding="utf-8")
         metadata = CODEX_METADATA.read_text(encoding="utf-8")
         claude_command = CLAUDE_COMMAND.read_text(encoding="utf-8")
 
         self.assertTrue(readme.startswith("```text\nK K  III  TTTTT"))
+        self.assertIn("`/kit`", readme)
+        self.assertIn("`$kit`", readme)
+        self.assertIn("scripts/install_claude_kit.sh", readme)
+        self.assertIn("scripts/install_codex_kit.sh", readme)
+        self.assertIn("~/.claude/kit-skill", readme)
+        self.assertIn("~/.codex/skills/kit", readme)
+        self.assertIn("Claude Code: /kit", agent_install)
+        self.assertIn("Codex: $kit", agent_install)
+        self.assertNotIn("`/known-issues`", readme)
+        self.assertNotIn("`$known-issues-aggregator`", readme)
+        self.assertNotIn("scripts/install_claude_known_issues.sh", readme)
+        self.assertNotIn("scripts/install_codex_known_issues.sh", readme)
+        self.assertNotIn("~/.claude/known-issues-skill", readme)
+        self.assertNotIn("~/.codex/skills/known-issues-aggregator", readme)
+        self.assertNotIn("Claude Code: /known-issues", agent_install)
+        self.assertNotIn("Codex: $known-issues-aggregator", agent_install)
         self.assertIn("K K  III  TTTTT", codex_skill)
         self.assertIn("K K  III  TTTTT", claude_command)
         self.assertIn("KIT / Known Issue Triager", metadata)
@@ -42,8 +60,14 @@ class KnownIssuesCliTests(unittest.TestCase):
 
         self.assertIn("Installed KIT / Known Issue Triager for Claude Code", claude_installer)
         self.assertIn("Installed KIT / Known Issue Triager for Codex", codex_installer)
-        self.assertIn("known-issues-skill", claude_installer)
-        self.assertIn("known-issues-aggregator", codex_installer)
+        self.assertIn("kit-skill", claude_installer)
+        self.assertIn("kit.md", claude_installer)
+        self.assertIn("claude-command-kit.md", claude_installer)
+        self.assertIn("Removed old Claude skill path", claude_installer)
+        self.assertIn("Removed old Claude command file", claude_installer)
+        self.assertIn("Installed KIT / Known Issue Triager for Codex", codex_installer)
+        self.assertIn("Skill: kit", codex_installer)
+        self.assertIn("Removed old Codex skill path", codex_installer)
 
     def test_codex_wrapper_exposes_staged_commands(self) -> None:
         result = subprocess.run(

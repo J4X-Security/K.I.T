@@ -23,11 +23,11 @@ Install the host integration:
 
 - If this is Claude Code, run:
 
-    bash scripts/install_claude_known_issues.sh
+    bash scripts/install_claude_kit.sh
 
 - If this is Codex, run:
 
-    bash scripts/install_codex_known_issues.sh
+    bash scripts/install_codex_kit.sh
 
 - If the host is unclear, ask me once whether to install for Claude Code or
   Codex, then run only that installer.
@@ -36,18 +36,18 @@ Verify the install:
 
 - For Claude Code:
 
-    ls -la ~/.claude/known-issues-skill
-    sed -n '1,120p' ~/.claude/commands/known-issues.md
-    python3 ~/.claude/known-issues-skill/scripts/known_issues.py --help
+    ls -la ~/.claude/kit-skill
+    sed -n '1,120p' ~/.claude/commands/kit.md
+    python3 ~/.claude/kit-skill/scripts/known_issues.py --help
 
 - For Codex:
 
-    ls -la ~/.codex/skills/known-issues-aggregator
-    sed -n '1,120p' ~/.codex/skills/known-issues-aggregator/SKILL.md
-    python3 ~/.codex/skills/known-issues-aggregator/scripts/known_issues.py --help
+    ls -la ~/.codex/skills/kit
+    sed -n '1,120p' ~/.codex/skills/kit/SKILL.md
+    python3 ~/.codex/skills/kit/scripts/known_issues.py --help
 
 When finished, tell me which command to use next:
 
-- Claude Code: /known-issues
-- Codex: $known-issues-aggregator
+- Claude Code: /kit
+- Codex: $kit
 ```

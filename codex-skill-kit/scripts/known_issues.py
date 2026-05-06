@@ -10,7 +10,7 @@ from pathlib import Path
 
 def main() -> int:
     wrapper_path = Path(__file__).resolve()
-    engine_path = wrapper_path.parents[2] / "claude-skill-known-issues" / "scripts" / "known_issues.py"
+    engine_path = wrapper_path.parents[2] / "claude-skill-kit" / "scripts" / "known_issues.py"
     if not engine_path.exists():
         print(f"error: shared engine not found at {engine_path}", file=sys.stderr)
         return 1

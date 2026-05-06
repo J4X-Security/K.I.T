@@ -1,0 +1,4 @@
+interface:
+  display_name: "KIT / Known Issue Triager"
+  short_description: "Build, extend, and query a canonical known-issues.json register from audit reports"
+  default_prompt: "Use $kit to consolidate audit reports into known-issues.json, extend an existing known-issues register, or check whether a newly reported issue is already known."

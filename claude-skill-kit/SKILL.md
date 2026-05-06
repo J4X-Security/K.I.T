@@ -1,5 +1,5 @@
 ---
-name: "known-issues-aggregator"
+name: "kit"
 description: "Use KIT / Known Issue Triager when asked to ingest audit reports from local files or URLs, deduplicate findings into a canonical known-issues.json register, or check whether a newly reported issue is already known."
 ---
 
@@ -29,7 +29,7 @@ Prefer the staged workflow over manual synthesis because it downloads remote art
 For Claude-first extraction, use the staged workflow:
 
 ```bash
-python3 claude-skill-known-issues/scripts/known_issues.py prepare-build \
+python3 claude-skill-kit/scripts/known_issues.py prepare-build \
   --input path/to/report-1.md \
   --input path/to/audits-folder \
   --input https://github.com/org/audit-repo/tree/main/reports \
@@ -50,7 +50,7 @@ Then:
 6. Finalize:
 
 ```bash
-python3 claude-skill-known-issues/scripts/known_issues.py finalize-build \
+python3 claude-skill-kit/scripts/known_issues.py finalize-build \
   --state-file known-issues.json \
   --output known-issues.json
 ```
@@ -58,7 +58,7 @@ python3 claude-skill-known-issues/scripts/known_issues.py finalize-build \
 To extend an existing register instead of rebuilding from scratch:
 
 ```bash
-python3 claude-skill-known-issues/scripts/known_issues.py finalize-build \
+python3 claude-skill-kit/scripts/known_issues.py finalize-build \
   --state-file known-issues.json \
   --merge-known known-issues.json \
   --output known-issues.json
@@ -82,7 +82,7 @@ Behavior:
 Use one of:
 
 ```bash
-python3 claude-skill-known-issues/scripts/known_issues.py prepare-check \
+python3 claude-skill-kit/scripts/known_issues.py prepare-check \
   --known known-issues.json \
   --issue-file path/to/new-issue.md
 ```
@@ -90,7 +90,7 @@ python3 claude-skill-known-issues/scripts/known_issues.py prepare-check \
 Or:
 
 ```bash
-python3 claude-skill-known-issues/scripts/known_issues.py prepare-check \
+python3 claude-skill-kit/scripts/known_issues.py prepare-check \
   --known known-issues.json \
   --issue-text "Unchecked return value in reward distributor can leave accounting inconsistent after external transfer failure."
 ```

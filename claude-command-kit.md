@@ -4,9 +4,9 @@ argument-hint: [build | check | help]
 allowed-tools: AskUserQuestion, Read, Write, Bash(python3:*)
 ---
 
-Read `~/.claude/known-issues-skill/SKILL.md` and follow its instructions exactly.
+Read `~/.claude/kit-skill/SKILL.md` and follow its instructions exactly.
 
-Use `python3 ~/.claude/known-issues-skill/scripts/known_issues.py` whenever the task requires generating or checking known issues with KIT.
+Use `python3 ~/.claude/kit-skill/scripts/known_issues.py` whenever the task requires generating or checking known issues with KIT.
 
 The user invoked this command with: `$ARGUMENTS`
 
@@ -118,8 +118,8 @@ When checking a new issue:
 
 If the user selects `Help`, explain:
 
-- `/known-issues` opens the KIT chooser
-- `/known-issues` uses staged JSON workflows for both build and check
+- `/kit` opens the KIT chooser
+- `/kit` uses staged JSON workflows for both build and check
 - report files can be local files and report sources can also be URLs
 - the build flow downloads remote artifacts and extracts PDF text before Claude structures the issues
 

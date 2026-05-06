@@ -1,5 +1,5 @@
 ---
-name: known-issues-aggregator
+name: kit
 description: Use KIT / Known Issue Triager when asked to consolidate audit findings into a canonical known-issues.json register, extend an existing known-issues file with new audit sources, or check whether a newly reported issue is already known. Supports local files, local audit folders, repo directories, direct URLs, GitHub file URLs, GitHub folder URLs, and whole GitHub repo URLs.
 ---
 
@@ -69,7 +69,7 @@ Do not run the engine until the user has explicitly chosen a mode and, for build
 This Codex skill uses the shared engine wrapper at:
 
 ```bash
-python3 ~/.codex/skills/known-issues-aggregator/scripts/known_issues.py
+python3 ~/.codex/skills/kit/scripts/known_issues.py
 ```
 
 The wrapper delegates to the shared engine from this repository and exposes the same commands:
@@ -96,7 +96,7 @@ Guide the user through:
 5. Prefer the staged flow:
 
 ```bash
-python3 ~/.codex/skills/known-issues-aggregator/scripts/known_issues.py prepare-build \
+python3 ~/.codex/skills/kit/scripts/known_issues.py prepare-build \
   --input path/to/report-or-folder \
   --input https://github.com/org/audit-repo/tree/main/reports \
   --merge-known known-issues.json \
@@ -111,7 +111,7 @@ python3 ~/.codex/skills/known-issues-aggregator/scripts/known_issues.py prepare-
 11. Finalize:
 
 ```bash
-python3 ~/.codex/skills/known-issues-aggregator/scripts/known_issues.py finalize-build \
+python3 ~/.codex/skills/kit/scripts/known_issues.py finalize-build \
   --state-file known-issues.json \
   --output known-issues.json
 ```
@@ -119,7 +119,7 @@ python3 ~/.codex/skills/known-issues-aggregator/scripts/known_issues.py finalize
 To extend an existing register:
 
 ```bash
-python3 ~/.codex/skills/known-issues-aggregator/scripts/known_issues.py finalize-build \
+python3 ~/.codex/skills/kit/scripts/known_issues.py finalize-build \
   --state-file known-issues.json \
   --merge-known known-issues.json \
   --output known-issues.json
@@ -134,7 +134,7 @@ Before running check mode, confirm whether the user is providing:
 Prefer the staged check flow:
 
 ```bash
-python3 ~/.codex/skills/known-issues-aggregator/scripts/known_issues.py prepare-check \
+python3 ~/.codex/skills/kit/scripts/known_issues.py prepare-check \
   --known known-issues.json \
   --issue-file path/to/new-issue.md
 ```
@@ -142,7 +142,7 @@ python3 ~/.codex/skills/known-issues-aggregator/scripts/known_issues.py prepare-
 Or:
 
 ```bash
-python3 ~/.codex/skills/known-issues-aggregator/scripts/known_issues.py prepare-check \
+python3 ~/.codex/skills/kit/scripts/known_issues.py prepare-check \
   --known known-issues.json \
   --issue-text "Unchecked transfer result can desynchronize reward accounting."
 ```

@@ -16,8 +16,8 @@ deduplicated and a new report needs to be compared against what is already known
 
 KIT supports:
 
-- Claude Code through the `/known-issues` command
-- Codex through the `$known-issues-aggregator` skill
+- Claude Code through the `/kit` command
+- Codex through the `$kit` skill
 - direct CLI use through the shared Python engine
 
 ## What It Does
@@ -57,34 +57,34 @@ the current host.
 ### Claude Code
 
 ```bash
-./scripts/install_claude_known_issues.sh
+./scripts/install_claude_kit.sh
 ```
 
 This installs:
 
-- `~/.claude/known-issues-skill`
-- `~/.claude/commands/known-issues.md`
+- `~/.claude/kit-skill`
+- `~/.claude/commands/kit.md`
 
 Start a new Claude Code session and use:
 
 ```text
-/known-issues
+/kit
 ```
 
 ### Codex
 
 ```bash
-./scripts/install_codex_known_issues.sh
+./scripts/install_codex_kit.sh
 ```
 
 This installs:
 
-- `~/.codex/skills/known-issues-aggregator`
+- `~/.codex/skills/kit`
 
 Start a new Codex session and invoke:
 
 ```text
-$known-issues-aggregator
+$kit
 ```
 
 ## Verify Installation
@@ -92,23 +92,23 @@ $known-issues-aggregator
 Claude Code:
 
 ```bash
-ls -la ~/.claude/known-issues-skill
-sed -n '1,120p' ~/.claude/commands/known-issues.md
-python3 ~/.claude/known-issues-skill/scripts/known_issues.py --help
+ls -la ~/.claude/kit-skill
+sed -n '1,120p' ~/.claude/commands/kit.md
+python3 ~/.claude/kit-skill/scripts/known_issues.py --help
 ```
 
 Codex:
 
 ```bash
-ls -la ~/.codex/skills/known-issues-aggregator
-sed -n '1,120p' ~/.codex/skills/known-issues-aggregator/SKILL.md
-python3 ~/.codex/skills/known-issues-aggregator/scripts/known_issues.py --help
+ls -la ~/.codex/skills/kit
+sed -n '1,120p' ~/.codex/skills/kit/SKILL.md
+python3 ~/.codex/skills/kit/scripts/known_issues.py --help
 ```
 
 ## Host Workflow
 
-Claude Code opens through `/known-issues`; Codex opens through
-`$known-issues-aggregator`.
+Claude Code opens through `/kit`; Codex opens through
+`$kit`.
 
 Both host workflows should guide you through:
 
@@ -125,7 +125,7 @@ deduplication, and duplicate decisions according to the staged contract.
 The shared engine lives at:
 
 ```text
-claude-skill-known-issues/scripts/known_issues.py
+claude-skill-kit/scripts/known_issues.py
 ```
 
 Available commands:
@@ -137,7 +137,7 @@ Available commands:
 The Codex script is a wrapper around the same engine:
 
 ```text
-codex-skill-known-issues/scripts/known_issues.py
+codex-skill-kit/scripts/known_issues.py
 ```
 
 ## Build Workflow
@@ -146,7 +146,7 @@ Use the staged model-assisted flow when sources are messy, mixed-format,
 PDF-based, URL-based, or likely to need semantic judgment.
 
 ```bash
-python3 claude-skill-known-issues/scripts/known_issues.py prepare-build \
+python3 claude-skill-kit/scripts/known_issues.py prepare-build \
   --input /path/to/report.md \
   --input /path/to/audits-folder \
   --input https://example.com/report.pdf \
@@ -164,7 +164,7 @@ Then:
 6. Finalize:
 
 ```bash
-python3 claude-skill-known-issues/scripts/known_issues.py finalize-build \
+python3 claude-skill-kit/scripts/known_issues.py finalize-build \
   --state-file known-issues.json \
   --merge-known known-issues.json \
   --output known-issues.json
@@ -177,7 +177,7 @@ For a rebuild from scratch, omit `--merge-known` during prepare and finalize.
 Prepare a staged duplicate check from a file:
 
 ```bash
-python3 claude-skill-known-issues/scripts/known_issues.py prepare-check \
+python3 claude-skill-kit/scripts/known_issues.py prepare-check \
   --known known-issues.json \
   --issue-file /path/to/new-issue.md
 ```
@@ -185,7 +185,7 @@ python3 claude-skill-known-issues/scripts/known_issues.py prepare-check \
 Or from inline text:
 
 ```bash
-python3 claude-skill-known-issues/scripts/known_issues.py prepare-check \
+python3 claude-skill-kit/scripts/known_issues.py prepare-check \
   --known known-issues.json \
   --issue-text "Unchecked transfer result can desynchronize reward accounting."
 ```
@@ -230,13 +230,13 @@ because the tests are under `tests/`.
 Claude Code:
 
 ```bash
-rm ~/.claude/known-issues-skill ~/.claude/commands/known-issues.md
+rm ~/.claude/kit-skill ~/.claude/commands/kit.md
 ```
 
 Codex:
 
 ```bash
-rm ~/.codex/skills/known-issues-aggregator
+rm ~/.codex/skills/kit
 ```
 
 ## License
