@@ -15,7 +15,8 @@ fi
 mkdir -p "${CODEX_SKILLS_DIR}"
 ln -sfn "${SOURCE_SKILL_DIR}" "${INSTALLED_SKILL_PATH}"
 
-echo "Installed Codex skill: known-issues-aggregator"
+echo "Installed KIT / Known Issue Triager for Codex"
+echo "Skill: known-issues-aggregator"
 echo "Skill path: ${INSTALLED_SKILL_PATH}"
 echo
 echo "Verify with:"

@@ -1,9 +1,9 @@
 ---
 name: known-issues-aggregator
-description: Use when asked to consolidate audit findings into a canonical known-issues.json register, extend an existing known-issues file with new audit sources, or check whether a newly reported issue is already known. Supports local files, local audit folders, repo directories, direct URLs, GitHub file URLs, GitHub folder URLs, and whole GitHub repo URLs.
+description: Use KIT / Known Issue Triager when asked to consolidate audit findings into a canonical known-issues.json register, extend an existing known-issues file with new audit sources, or check whether a newly reported issue is already known. Supports local files, local audit folders, repo directories, direct URLs, GitHub file URLs, GitHub folder URLs, and whole GitHub repo URLs.
 ---
 
-# Known Issues Aggregator
+# KIT / Known Issue Triager
 
 Use this skill when the task is to turn a collection of audit reports into a canonical known-issues register or to compare a new issue against that register.
 
@@ -22,11 +22,13 @@ The first response must contain exactly one question block, then stop and wait f
 Use this exact opening format:
 
 ```text
- _  _____ ___
-| |/ /_ _/ __|
-| ' < | | (__
-|_|\_\___\___|
-KIC (Known Issue Checker) by J4X
+    __ __ __________            __ __ _   ______ _       ___   __   ______________ __  ________   __________  _______   ________________ 
+   / //_//  _/_  __/           / //_// | / / __ \ |     / / | / /  /  _/ ___/ ___// / / / ____/  /_  __/ __ \/  _/   | / ____/ ____/ __ \
+  / ,<   / /  / /    ______   / ,<  /  |/ / / / / | /| / /  |/ /   / / \__ \\__ \/ / / / __/      / / / /_/ // // /| |/ / __/ __/ / /_/ /
+ / /| |_/ /  / /    /_____/  / /| |/ /|  / /_/ /| |/ |/ / /|  /  _/ / ___/ /__/ / /_/ / /___     / / / _, _// // ___ / /_/ / /___/ _, _/ 
+/_/ |_/___/ /_/             /_/ |_/_/ |_/\____/ |__/|__/_/ |_/  /___//____/____/\____/_____/    /_/ /_/ |_/___/_/  |_\____/_____/_/ |_|  
+
+KIT / Known Issue Triager
 
 What do you want to do?
 - build: create or extend a known-issues.json register from audit sources

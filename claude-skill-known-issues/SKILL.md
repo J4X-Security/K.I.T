@@ -1,9 +1,9 @@
 ---
 name: "known-issues-aggregator"
-description: "Use this skill when asked to ingest audit reports from local files or URLs, deduplicate findings into a canonical known-issues.json register, or check whether a newly reported issue is already known."
+description: "Use KIT / Known Issue Triager when asked to ingest audit reports from local files or URLs, deduplicate findings into a canonical known-issues.json register, or check whether a newly reported issue is already known."
 ---
 
-# Known Issues Aggregator
+# KIT / Known Issue Triager
 
 Use this skill when the task is to consolidate prior audit findings into a single known-issues register or to decide whether a new issue is already covered by that register.
 

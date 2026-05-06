@@ -11,9 +11,40 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "claude-skill-known-issues" / "scripts" / "known_issues.py"
 CODEX_WRAPPER = ROOT / "codex-skill-known-issues" / "scripts" / "known_issues.py"
+README = ROOT / "README.md"
+CODEX_SKILL = ROOT / "codex-skill-known-issues" / "SKILL.md"
+CODEX_METADATA = ROOT / "codex-skill-known-issues" / "agents" / "openai.yaml"
+CLAUDE_COMMAND = ROOT / "claude-command-known-issues.md"
+CLAUDE_INSTALLER = ROOT / "scripts" / "install_claude_known_issues.sh"
+CODEX_INSTALLER = ROOT / "scripts" / "install_codex_known_issues.sh"
 
 
 class KnownIssuesCliTests(unittest.TestCase):
+    def test_public_metadata_uses_kit_brand_and_json_artifact(self) -> None:
+        readme = README.read_text(encoding="utf-8")
+        codex_skill = CODEX_SKILL.read_text(encoding="utf-8")
+        metadata = CODEX_METADATA.read_text(encoding="utf-8")
+        claude_command = CLAUDE_COMMAND.read_text(encoding="utf-8")
+
+        self.assertTrue(readme.startswith("```\n    __ __ __________"))
+        self.assertIn("    __ __ __________", codex_skill)
+        self.assertIn("    __ __ __________", claude_command)
+        self.assertIn("KIT / Known Issue Triager", metadata)
+        self.assertIn("known-issues.json", metadata)
+        self.assertNotIn("known-issues.md", metadata)
+        self.assertIn("KIT / Known Issue Triager", claude_command)
+        self.assertNotIn("KIC (Known Issue Checker)", claude_command)
+        self.assertNotIn("J4X", claude_command)
+
+    def test_installers_print_public_branding(self) -> None:
+        claude_installer = CLAUDE_INSTALLER.read_text(encoding="utf-8")
+        codex_installer = CODEX_INSTALLER.read_text(encoding="utf-8")
+
+        self.assertIn("Installed KIT / Known Issue Triager for Claude Code", claude_installer)
+        self.assertIn("Installed KIT / Known Issue Triager for Codex", codex_installer)
+        self.assertIn("known-issues-skill", claude_installer)
+        self.assertIn("known-issues-aggregator", codex_installer)
+
     def test_codex_wrapper_exposes_staged_commands(self) -> None:
         result = subprocess.run(
             ["python3", str(CODEX_WRAPPER), "--help"],

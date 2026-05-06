@@ -1,12 +1,12 @@
 ---
-description: "Build or check a known-issues register from audit reports"
+description: "Build or check a known-issues register with KIT / Known Issue Triager"
 argument-hint: [build | check | help]
 allowed-tools: AskUserQuestion, Read, Write, Bash(python3:*)
 ---
 
 Read `~/.claude/known-issues-skill/SKILL.md` and follow its instructions exactly.
 
-Use `python3 ~/.claude/known-issues-skill/scripts/known_issues.py` whenever the task requires generating or checking known issues.
+Use `python3 ~/.claude/known-issues-skill/scripts/known_issues.py` whenever the task requires generating or checking known issues with KIT.
 
 The user invoked this command with: `$ARGUMENTS`
 
@@ -17,13 +17,15 @@ If `$ARGUMENTS` is empty or only whitespace:
 1. Use `AskUserQuestion` to present a small mode selector.
 2. Ask:
    - header: `Mode`
-   - question: ` _  _____ ___
-| |/ /_ _/ __|
-| ' < | | (__
-|_|\_\___\___|
-KIC (Known Issue Checker) by J4X
+     - question: `    __ __ __________            __ __ _   ______ _       ___   __   ______________ __  ________   __________  _______   ________________ 
+   / //_//  _/_  __/           / //_// | / / __ \ |     / / | / /  /  _/ ___/ ___// / / / ____/  /_  __/ __ \/  _/   | / ____/ ____/ __ \
+  / ,<   / /  / /    ______   / ,<  /  |/ / / / / | /| / /  |/ /   / / \__ \\__ \/ / / / __/      / / / /_/ // // /| |/ / __/ __/ / /_/ /
+ / /| |_/ /  / /    /_____/  / /| |/ /|  / /_/ /| |/ |/ / /|  /  _/ / ___/ /__/ / /_/ / /___     / / / _, _// // ___ / /_/ / /___/ _, _/ 
+/_/ |_/___/ /_/             /_/ |_/_/ |_/\____/ |__/|__/_/ |_/  /___//____/____/\____/_____/    /_/ /_/ |_/___/_/  |_\____/_____/_/ |_|  
 
-What do you want to do with the known issues workflow?`
+KIT / Known Issue Triager
+
+What do you want to do with KIT?`
    - options:
      - `Build register` — Parse audit reports and generate `known-issues.json`
      - `Check issue` — Compare a new issue against existing known issues
@@ -116,7 +118,7 @@ When checking a new issue:
 
 If the user selects `Help`, explain:
 
-- `/known-issues` opens the chooser
+- `/known-issues` opens the KIT chooser
 - `/known-issues` uses staged JSON workflows for both build and check
 - report files can be local files and report sources can also be URLs
 - the build flow downloads remote artifacts and extracts PDF text before Claude structures the issues

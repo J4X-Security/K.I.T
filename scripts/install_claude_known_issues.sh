@@ -24,7 +24,8 @@ mkdir -p "${COMMANDS_DIR}"
 ln -sfn "${SOURCE_SKILL_DIR}" "${INSTALLED_SKILL_PATH}"
 cp "${SOURCE_COMMAND_FILE}" "${COMMAND_PATH}"
 
-echo "Installed Claude command: /known-issues"
+echo "Installed KIT / Known Issue Triager for Claude Code"
+echo "Command: /known-issues"
 echo "Skill path: ${INSTALLED_SKILL_PATH}"
 echo "Command file: ${COMMAND_PATH}"
 echo
