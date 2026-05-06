@@ -48,6 +48,12 @@ pip install -r requirements.txt
 
 ## Install
 
+### Agent-Assisted Install
+
+For Claude Code or Codex, you can paste the prompt in
+[AGENT_INSTALL.md](AGENT_INSTALL.md) into the agent and let it install KIT for
+the current host.
+
 ### Claude Code
 
 ```bash
